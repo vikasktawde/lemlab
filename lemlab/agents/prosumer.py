@@ -113,9 +113,18 @@ class Prosumer:
         else:
             self.controller_model_predictive(controller="mpc")
 
+        #*******Important code ********
         if len(self._get_list_plants(plant_type="pv")) > 0:
-            print("Run New MPC")
-        # print(f'Example Code: {self.config_dict["prob_mpc"]}')
+            # global global_count
+            # global_count += 1
+            # self.mpc_table.to_csv(f'{global_count}_mpc_table_before.csv')
+            for i, prob in enumerate([0.3, 0.4, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8]):
+                self.controller_model_predictive_test(meter_tag=i, controller="mpc")
+            # self.mpc_table.to_csv(f'{global_count}_mpc_table_after.csv')
+
+        if len(self._get_list_plants(plant_type="pv")) > 0:
+            if db_obj.lem_config["types_clearing_ex_ante"]:
+                self.market_agent_test(db_obj=db_obj, clear_positions=clear_positions)
 
         # then, execute market agent if ex-ante market
         if db_obj.lem_config["types_clearing_ex_ante"]:
@@ -475,15 +484,8 @@ class Prosumer:
                         filepath=f"{self.path}/raw_data_{plant}.ft"
                         )
                     ts_pred[f"power_{plant}"] = [i * self.plant_dict[plant].get("power") for i in temp]
-                    ts_pred[f"power_{plant}_0.1"] = [i for i in np.array(ts_pred[f"power_{plant}"]) * 0.3]
-                    ts_pred[f"power_{plant}_0.2"] = [i for i in np.array(ts_pred[f"power_{plant}"]) * 0.4]
-                    ts_pred[f"power_{plant}_0.3"] = [i for i in np.array(ts_pred[f"power_{plant}"]) * 0.5]
-                    ts_pred[f"power_{plant}_0.4"] = [i for i in np.array(ts_pred[f"power_{plant}"]) * 0.55]
-                    ts_pred[f"power_{plant}_0.5"] = [i for i in np.array(ts_pred[f"power_{plant}"]) * 0.6]
-                    ts_pred[f"power_{plant}_0.6"] = [i for i in np.array(ts_pred[f"power_{plant}"]) * 0.65]
-                    ts_pred[f"power_{plant}_0.7"] = [i for i in np.array(ts_pred[f"power_{plant}"]) * 0.7]
-                    ts_pred[f"power_{plant}_0.8"] = [i for i in np.array(ts_pred[f"power_{plant}"]) * 0.75]
-                    ts_pred[f"power_{plant}_0.9"] = [i for i in np.array(ts_pred[f"power_{plant}"]) * 0.8]
+                    for i, prob in enumerate([0.3, 0.4, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8]):
+                        ts_pred[f"power_{plant}_{i}"] = [i for i in np.array(ts_pred[f"power_{plant}"]) * prob]
 
                 elif self.plant_dict[plant].get("type") == "hh":
                     ts_pred[f"power_{plant}"] = fcast.get_forecast(
@@ -563,7 +565,7 @@ class Prosumer:
             # global_count += 1
             # self.mpc_table.to_csv(f'{global_count}_prediction.csv')
 
-    def controller_model_predictive_test(self, controller="mpc"):
+    def controller_model_predictive_test(self, meter_tag: int, controller="mpc"):
         """Execute the model predictive controller_real_time for the market participant given the predicted
         generation, consumption, and market prices for a configurable time horizon.
 
@@ -572,12 +574,24 @@ class Prosumer:
 
         :return: None
         """
+        # global global_count
+        # global_count += 1
+        # self.mpc_table.to_csv(f'{global_count}_mpc_table_before_{meter_tag}.csv')
+
+        # print(self._get_list_plants(plant_type="pv"))
+        # print(self._get_list_plants)
+
+
+
+
+        # for i, prob in enumerate([0.3, 0.4, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8]):
+        #     ts_pred[f"power_{plant}_{i}"] = [i for i in np.array(ts_pred[f"power_{plant}"]) * prob]
 
         if controller == "mpc":
             # model declaration
             model = pyo.AbstractModel()
             model.t = pyo.Set(initialize=range(0, self.config_dict["mpc_horizon"]))
-            model.t_restricted = pyo.Set(initialize=range(0, self.config_dict["mpc_horizon"])[1:], within=model.t)
+            model.t_restricted = pyo.Set(initialize=range(1, self.config_dict["mpc_horizon"]), within=model.t)
 
             # pv power variable
             if self._get_list_plants(plant_type="pv"):
@@ -648,11 +662,11 @@ class Prosumer:
                     if self.plant_dict[pv].get("controllable"):
                         return model.p_pv[pv, t] <= dict(enumerate(np.array(
                             self.mpc_table.loc[self.ts_delivery_current:self.ts_delivery_current +
-                                                                        self.config_dict["mpc_horizon"]*900][f"power_{pv}"])))[t]
+                                                                        self.config_dict["mpc_horizon"]*900][f"power_{pv}_{meter_tag}"])))[t]
                     else:
                         return model.p_pv[pv, t] == dict(enumerate(np.array(
                             self.mpc_table.loc[self.ts_delivery_current:self.ts_delivery_current +
-                                                                        self.config_dict["mpc_horizon"]*900][f"power_{pv}"])))[t]
+                                                                        self.config_dict["mpc_horizon"]*900][f"power_{pv}_{meter_tag}"])))[t]
 
                 model.pv_power_constraint = pyo.Constraint(model.t, rule=pv_power_constraint)
 
@@ -674,16 +688,16 @@ class Prosumer:
                             self.mpc_table.loc[self.ts_delivery_current:self.ts_delivery_current +
                                                                         self.config_dict["mpc_horizon"] * 900][f"power_{fixedgen}"])))[t]
 
-            model.fixedgen_power_constraint = pyo.Constraint(model.t, rule=fixedgen_power_constraint)
+                model.fixedgen_power_constraint = pyo.Constraint(model.t, rule=fixedgen_power_constraint)
 
             sum_fixedgen = dict(enumerate(sum_fixedgen_temp))
 
             # limit battery charging to pv generation
-            constraint_constant = 0
+            constraint_constant = False
             for bat in self._get_list_plants(plant_type="bat"):
                 def battery_charging_grid_constraint(model, t):
                     if not self.plant_dict[bat].get("charge_from_grid"):
-                        constraint_constant = 1
+                        constraint_constant = True
                         return model.p_bat_in[bat, t] <= sum_pv[t]
 
             if constraint_constant:
@@ -707,74 +721,75 @@ class Prosumer:
 
                 model.soc_battery_constraint = pyo.Constraint(model.t_restricted, rule=soc_battery_constraint)
 
-            # ********************************** Done till here ************************************
-
-            model.con_balance = pyo.ConstraintList()
-            for _t in range(self.config_dict["mpc_horizon"]):
-                expression_left = p_load[_t]
+            def energy_balance_constraint(model, t):
+                expression_left = p_load[t]
                 for _pv in self._get_list_plants(plant_type="pv"):
-                    expression_left += model.p_pv[_pv, _t]
+                    expression_left += model.p_pv[_pv, t]
                 for _bat in self._get_list_plants(plant_type="bat"):
-                    expression_left += model.p_bat_out[_bat, _t] - model.p_bat_in[_bat, _t]
-                for _ev in self._get_list_plants(plant_type="ev"):
-                    expression_left += model.p_ev_out[_ev, _t] - model.p_ev_in[_ev, _t]
+                    expression_left += model.p_bat_out[_bat, t] - model.p_bat_in[_bat, t]
                 for _fixedgen in self._get_list_plants(plant_type="fixedgen"):
-                    expression_left += model.p_fixedgen[_fixedgen, _t]
-                expression_right = model.p_grid_out[_t] - model.p_grid_in[_t]
-                model.con_balance.add(expr=(expression_left == expression_right))
+                    expression_left += model.p_fixedgen[_fixedgen, t]
+                expression_right = model.p_grid_out[t] - model.p_grid_in[t]
+                return expression_left == expression_right
 
-            model.price = list(self.mpc_table["price"])
-            model.price_levies_pos = list(self.mpc_table["price_energy_levies_positive"])
-            model.price_levies_neg = list(self.mpc_table["price_energy_levies_negative"])
+            model.energy_balance_constraint = pyo.Constraint(model.t, rule=energy_balance_constraint)
+
+            dict_price = dict(self.mpc_table.reset_index(drop=False)["price"])
+            dict_price_levies_pos = dict(self.mpc_table.reset_index(drop=False)["price_energy_levies_positive"])
+            dict_price_levies_neg = dict(self.mpc_table.reset_index(drop=False)["price_energy_levies_negative"])
 
             # Define objective function
-            def obj_rule(_model):
-                step_obj = 0
-                for j in range(0, self.config_dict["mpc_horizon"]):
-                    #            component 1:   grid feed in valued at predicted price
-                    #            component 2:   grid consumption valued at predicted price plus fixed levies
-                    step_obj += _model.p_grid_out[j] * (-_model.price[j] + model.price_levies_pos[j]) \
-                                + _model.p_grid_in[j] * (_model.price[j] + model.price_levies_neg[j])
-                    # ensure non-degeneracy of the MILP
-                    # cannot be used by GLPK as non-linear objectives cannot be solved
-                    if self.config_dict["solver"] != "glpk":
-                        step_obj += 0.0005 * _model.p_grid_out[j] * _model.p_grid_out[j] / 1000 / 1000
-                        step_obj += 0.0005 * _model.p_grid_in[j] * _model.p_grid_in[j] / 1000 / 1000
-                    # legacy check for electric vehicle constraint violation
-                    for item in self._get_list_plants(plant_type="ev"):
-                        step_obj += _model.ev_slack[item, j] * 100000000
-                return step_obj
+            def objective_function(model):
+
+                revenue = sum(model.p_grid_out[t] * (dict_price[t] + dict_price_levies_pos[t]) for t in model.t)
+                cost = sum(model.p_grid_in[t] * (dict_price[t] + dict_price_levies_neg[t]) for t in model.t)
+
+                objective_expression = cost - revenue
+
+                return objective_expression
 
             # Solve model
-            model.objective_fun = pyo.Objective(rule=obj_rule, sense=pyo.minimize)
-            pyo.SolverFactory(self.config_dict["solver"]).solve(model)
+            model.objective = pyo.Objective(rule=objective_function, sense=pyo.minimize)  # minimize cost
+
+            instance = model.create_instance()
+            opt = pyo.SolverFactory(self.config_dict["solver"])
+            opt.solve(instance)
+
+            # pyo.SolverFactory(self.config_dict["solver"]).solve(model)
 
             # Update mpc_table with results of model
-            dict_mpc_table = self.mpc_table.to_dict()
+            temp_df = self.mpc_table
+            for bat in self._get_list_plants(plant_type="bat"):
+                temp_df[f"power_{bat}_{meter_tag}"] = np.nan
+            for bat in self._get_list_plants(plant_type="bat"):
+                temp_df[f"soc_{bat}_{meter_tag}"] = np.nan
+            temp_df[f"power_{self.config_dict['id_meter_grid']}_{meter_tag}"] = np.nan
+            dict_mpc_table = temp_df.to_dict()
+            # dict_mpc_table = self.mpc_table.to_dict()
             for i, t_d in enumerate(range(self.ts_delivery_current,
                                           self.ts_delivery_current + 900 * self.config_dict["mpc_horizon"], 900)):
                 # PV
                 for pv in self._get_list_plants(plant_type="pv"):
-                    dict_mpc_table[f"power_{pv}"][t_d] = model.p_pv[pv, i]()
+                    dict_mpc_table[f"power_{pv}_{meter_tag}"][t_d] = instance.p_pv[pv, i]()
 
                 # Battery
                 for bat in self._get_list_plants(plant_type="bat"):
-                    dict_mpc_table[f"power_{bat}"][t_d] = model.p_bat_out[bat, i]() - model.p_bat_in[bat, i]()
-                    dict_mpc_table[f"soc_{bat}"][t_d] = model.soc_bat[bat, i]()
+                    dict_mpc_table[f"power_{bat}_{meter_tag}"][t_d] = instance.p_bat_out[bat, i]() - instance.p_bat_in[bat, i]()
+                    dict_mpc_table[f"soc_{bat}_{meter_tag}"][t_d] = instance.soc_bat[bat, i]()
 
                 # Fixed generation
                 for fixedgen in self._get_list_plants(plant_type="fixedgen"):
-                    dict_mpc_table[f"power_{fixedgen}"][t_d] = model.p_fixedgen[fixedgen, i]()
+                    dict_mpc_table[f"power_{fixedgen}"][t_d] = instance.p_fixedgen[fixedgen, i]()
 
                 # Grid power
-                dict_mpc_table[f"power_{self.config_dict['id_meter_grid']}"][t_d] \
-                    = model.p_grid_out[i]() - model.p_grid_in[i]()
+                dict_mpc_table[f"power_{self.config_dict['id_meter_grid']}_{meter_tag}"][t_d] \
+                    = instance.p_grid_out[i]() - instance.p_grid_in[i]()
 
             # Save results to file, which will be used as basis for controller_real_time set points and market trading
-            global global_count
-            global_count += 1
-            pd.DataFrame.from_dict(dict_mpc_table).to_csv(f'{global_count}_mpc_table.csv')
+
+            # pd.DataFrame.from_dict(dict_mpc_table).to_csv(f'{global_count}_mpc_table_after_{meter_tag}.csv')
             self.mpc_table = pd.DataFrame.from_dict(dict_mpc_table)
+
         elif controller == "hh":
             # fixedgen power, sum of household loads
             p_load = [0] * self.config_dict["mpc_horizon"]
@@ -791,8 +806,8 @@ class Prosumer:
             # Save results to file, which will be used as basis for controller_real_time set points and market trading
             self.mpc_table = pd.DataFrame.from_dict(dict_mpc_table)
 
-        ft.write_dataframe(self.mpc_table.reset_index().rename(columns={"index": "timestamp"}),
-                           f"{self.path}/controller_mpc.ft")
+        # ft.write_dataframe(self.mpc_table.reset_index().rename(columns={"index": "timestamp"}),
+        #                    f"{self.path}/controller_mpc.ft")
 
     def controller_model_predictive(self, controller="mpc"):
         """Execute the model predictive controller_real_time for the market participant given the predicted
@@ -1108,9 +1123,6 @@ class Prosumer:
                     = model.p_grid_out[i]() - model.p_grid_in[i]()
 
             # Save results to file, which will be used as basis for controller_real_time set points and market trading
-            global global_count
-            global_count += 1
-            pd.DataFrame.from_dict(dict_mpc_table).to_csv(f'{global_count}_mpc_table.csv')
             self.mpc_table = pd.DataFrame.from_dict(dict_mpc_table)
         elif controller == "hh":
             # fixedgen power, sum of household loads
@@ -1275,6 +1287,121 @@ class Prosumer:
         ft.write_dataframe(df_target_grid_power.reset_index(),
                            f"{self.path}/target_grid_power.ft")
 
+
+    def market_agent_test(self, db_obj, clear_positions=False):
+        """Calculate and post/update market positions to the double sided market.
+
+        :param db_obj: Database instance, pass the database connection instance to this method
+        :param clear_positions: boolean, clear own positions in database if true
+
+        :return:
+        """
+        # generate list of potential bids from MPC results
+        # all grid flows are potential bids
+
+        # print(self.mpc_table)
+        meter_grid_cols = [col for col in self.mpc_table.columns if f"power_{self.config_dict['id_meter_grid']}" in col]
+
+        df_potential_bids = pd.DataFrame(
+            self.mpc_table[(self.ts_delivery_current <= self.mpc_table.index)
+                           & (self.mpc_table.index <= self.ts_delivery_current
+                              + 15*60*self.config_dict["ma_horizon"])]
+            [meter_grid_cols]) / 4
+
+        list_df_bids = []
+
+        for col in meter_grid_cols:
+            df_potential_bids_temp = df_potential_bids.copy()
+            df_potential_bids_temp.rename(columns={col: "net_bids"}, inplace=True)
+            df_potential_bids_temp["net_bids"] = df_potential_bids_temp["net_bids"] - self.matched_bids_by_timestep["net_bids"]
+            dict_pot_bids = df_potential_bids_temp.to_dict()
+
+            index_pot_bids = sorted(list(dict_pot_bids["net_bids"]))
+
+            dict_positions = {
+                db_obj.db_param.ID_USER: [],
+                db_obj.db_param.QTY_ENERGY: [],
+                db_obj.db_param.PRICE_ENERGY: [],
+                db_obj.db_param.QUALITY_ENERGY: [],
+                db_obj.db_param.PREMIUM_PREFERENCE_QUALITY: [],
+                db_obj.db_param.TYPE_POSITION: [],
+                db_obj.db_param.NUMBER_POSITION: [],
+                db_obj.db_param.STATUS_POSITION: [],
+                db_obj.db_param.T_SUBMISSION: [],
+                db_obj.db_param.TS_DELIVERY: []}
+            euro_kwh_to_sigma_wh = db_obj.db_param.EURO_TO_SIGMA / 1000
+
+            delta = 0
+            gradient = (self.config_dict["max_bid"] - self.config_dict["min_offer"]) / (
+                        self.config_dict["ma_horizon"] - 1)
+
+            for t_s in index_pot_bids:
+                """Market logic to be inserted at this point. In order to be posted, bids must be assigned prices"""
+                if t_s > self.ts_delivery_current:
+                    # determine energy to be traded
+                    energy_position = round(dict_pot_bids["net_bids"][t_s])
+                    if abs(energy_position) >= 10:
+                        post_position = True
+                    else:
+                        post_position = False
+
+                    has_renewable = False
+                    has_non_ren = False
+                    for plant in self._get_list_plants("pv") + self._get_list_plants("fixedgen"):
+                        if self.plant_dict[plant]["quality"] in ["green_local"]:
+                            has_renewable = True
+                        if self.plant_dict[plant]["quality"] in ["local"]:
+                            has_non_ren = True
+                    if energy_position < 0:
+                        quality = self.config_dict["ma_preference_quality"]
+                        premium = self.config_dict["ma_premium_preference_quality"]
+                    elif energy_position > 0 and has_non_ren:
+                        quality = "local"
+                        premium = 0
+                    elif energy_position > 0 and has_renewable:
+                        quality = "green_local"
+                        premium = 0
+                    else:
+                        quality = "na"
+                        premium = 0
+
+                    if self.config_dict["ma_strategy"] == "zi":
+                        # determine energy price,
+                        price = self.config_dict["min_offer"] \
+                                + random() * (self.config_dict["max_bid"] - self.config_dict["min_offer"])
+                        price = round(price, 4)
+                        price *= euro_kwh_to_sigma_wh
+
+                    else:
+                        if energy_position < 0:
+                            price = round(self.config_dict["max_bid"] - delta, 6)
+                            price *= euro_kwh_to_sigma_wh
+                        else:
+                            price = round(self.config_dict["min_offer"] + delta, 6)
+                            price *= euro_kwh_to_sigma_wh
+
+                    if post_position:
+                        dict_positions[db_obj.db_param.ID_USER].append(self.config_dict['id_market_agent'])
+                        dict_positions[db_obj.db_param.QTY_ENERGY].append(abs(energy_position))
+                        dict_positions[db_obj.db_param.TYPE_POSITION].append("offer" if energy_position > 0 else "bid")
+                        dict_positions[db_obj.db_param.NUMBER_POSITION].append(0)
+                        dict_positions[db_obj.db_param.STATUS_POSITION].append(0)
+                        dict_positions[db_obj.db_param.PRICE_ENERGY].append(price)
+                        dict_positions[db_obj.db_param.QUALITY_ENERGY].append(quality)
+                        dict_positions[db_obj.db_param.PREMIUM_PREFERENCE_QUALITY].append(premium)
+                        dict_positions[db_obj.db_param.T_SUBMISSION].append(self.t_now)
+                        dict_positions[db_obj.db_param.TS_DELIVERY].append(t_s)
+                    delta += gradient
+            if clear_positions:
+                db_obj.clear_positions(id_user=self.config_dict['id_market_agent'])
+            if len(dict_positions[db_obj.db_param.ID_USER]) > 0:
+                df_bids_temp = pd.DataFrame(dict_positions).reset_index(drop=True)
+                list_df_bids.append(df_bids_temp)
+        df_bids = pd.concat(list_df_bids, axis=0)
+        print(df_bids.info(verbose=True))
+            # db_obj.post_positions(df_bids,
+            #                       t_override=self.t_now)
+
     def market_agent(self, db_obj, clear_positions=False):
         """Calculate and post/update market positions to the double sided market.
 
@@ -1291,7 +1418,6 @@ class Prosumer:
                            & (self.mpc_table.index <= self.ts_delivery_current
                               + 15*60*self.config_dict["ma_horizon"])]
             [f"power_{self.config_dict['id_meter_grid']}"]) / 4
-
         df_potential_bids.rename(columns={f"power_{self.config_dict['id_meter_grid']}": "net_bids"}, inplace=True)
 
         df_potential_bids["net_bids"] = df_potential_bids["net_bids"] - self.matched_bids_by_timestep["net_bids"]

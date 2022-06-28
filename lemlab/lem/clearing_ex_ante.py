@@ -19,7 +19,8 @@ import matplotlib.pyplot as plt
 import traceback
 import random
 import string
-
+global_count_0 = 0
+global_count_1 = 0
 
 def market_clearing(db_obj,
                     config_lem,
@@ -80,7 +81,6 @@ def market_clearing(db_obj,
         # Create empty results df
         results_clearing = pd.DataFrame()
         positions_cleared = pd.DataFrame()
-
         # Set first clearing interval to next clearing interval period (ceil up to next clearing interval)
         t_clearing_first = t_now - (t_now % config_lem['interval_clearing']) + config_lem['interval_clearing']
 
@@ -127,6 +127,1015 @@ def market_clearing(db_obj,
                                      bids_ts_d,
                                      plotting=plotting,
                                      plotting_title=plotting_title)
+
+                    # clearing_block(db_obj,
+                    #                config_lem,
+                    #                offers_ts_d,
+                    #                bids_ts_d,
+                    #                plotting=plotting,
+                    #                plotting_title=plotting_title)
+
+                if 'h2l' == type_clearing:
+                    positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
+                        clearing_pp(db_obj,
+                                    config_lem,
+                                    offers_ts_d,
+                                    bids_ts_d,
+                                    type_prioritization='h2l',
+                                    plotting=plotting,
+                                    plotting_title=plotting_title)
+
+                if 'l2h' == type_clearing:
+                    positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
+                        clearing_pp(db_obj,
+                                    config_lem,
+                                    offers_ts_d,
+                                    bids_ts_d,
+                                    type_prioritization='l2h',
+                                    plotting=plotting,
+                                    plotting_title=plotting_title)
+
+                if 'sep' == type_clearing:
+                    positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
+                        clearing_pp(db_obj,
+                                    config_lem,
+                                    offers_ts_d,
+                                    bids_ts_d,
+                                    type_prioritization='sep',
+                                    plotting=plotting,
+                                    plotting_title=plotting_title)
+
+                if 'cc' == type_clearing:
+                    positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
+                        clearing_cc(db_obj,
+                                    config_lem,
+                                    offers_ts_d,
+                                    bids_ts_d,
+                                    plotting=plotting,
+                                    plotting_title=plotting_title,
+                                    verbose=verbose)
+
+                if 'cc_h2l' == type_clearing:
+                    positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
+                        clearing_cc(db_obj,
+                                    config_lem,
+                                    offers_ts_d,
+                                    bids_ts_d,
+                                    plotting=plotting,
+                                    plotting_title=plotting_title,
+                                    verbose=verbose)
+
+                    if not bids_uncleared.empty and not offers_uncleared.empty:
+                        # Clear in a preference prioritization for remaining positions
+                        results_pp, offers_uncleared_pp, bids_uncleared_pp, offers_cleared_pp, bids_cleared_pp = \
+                            clearing_pp(db_obj=db_obj,
+                                        config_lem=config_lem,
+                                        offers=offers_uncleared,
+                                        bids=bids_uncleared,
+                                        type_clearing=type_clearing,
+                                        type_prioritization='h2l',
+                                        plotting=plotting,
+                                        plotting_title=f'{plotting_title}; pref. satis.')
+                        positions_cleared = pd.concat([positions_cleared, results_pp]).reset_index(drop=True)
+
+                if 'cc_l2h' == type_clearing:
+                    positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
+                        clearing_cc(db_obj,
+                                    config_lem,
+                                    offers_ts_d,
+                                    bids_ts_d,
+                                    plotting=plotting,
+                                    plotting_title=plotting_title,
+                                    verbose=verbose)
+
+                    if not bids_uncleared.empty and not offers_uncleared.empty:
+                        # Clear in a preference prioritization for remaining positions
+                        results_pp, offers_uncleared_pp, bids_uncleared_pp, offers_cleared_pp, bids_cleared_pp = \
+                            clearing_pp(db_obj=db_obj,
+                                        config_lem=config_lem,
+                                        offers=offers_uncleared,
+                                        bids=bids_uncleared,
+                                        type_clearing=type_clearing,
+                                        type_prioritization='l2h',
+                                        plotting=plotting,
+                                        plotting_title=f'{plotting_title}; pref. satis.')
+                        positions_cleared = pd.concat([positions_cleared, results_pp]).reset_index(drop=True)
+
+                if 'cc_sep' == type_clearing:
+                    positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
+                        clearing_cc(db_obj,
+                                    config_lem,
+                                    offers_ts_d,
+                                    bids_ts_d,
+                                    plotting=plotting,
+                                    plotting_title=plotting_title,
+                                    verbose=verbose)
+
+                    if not bids_uncleared.empty and not offers_uncleared.empty:
+                        # Clear in a preference prioritization for remaining positions
+                        results_pp, offers_uncleared_pp, bids_uncleared_pp, offers_cleared_pp, bids_cleared_pp = \
+                            clearing_pp(db_obj=db_obj,
+                                        config_lem=config_lem,
+                                        offers=offers_uncleared,
+                                        bids=bids_uncleared,
+                                        type_clearing=type_clearing,
+                                        type_prioritization='sep',
+                                        plotting=plotting,
+                                        plotting_title=f'{plotting_title}; pref. satis.')
+                        positions_cleared = pd.concat([positions_cleared, results_pp]).reset_index(drop=True)
+
+                if 'sep_cc' == type_clearing:
+                    positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
+                        clearing_pp(db_obj,
+                                    config_lem,
+                                    offers_ts_d,
+                                    bids_ts_d,
+                                    type_prioritization='sep',
+                                    plotting=plotting,
+                                    plotting_title=plotting_title)
+
+                    if not bids_uncleared.empty and not offers_uncleared.empty:
+                        results_ps, offers_uncleared_ps, bids_uncleared_ps, offers_cleared_ps, bids_cleared_ps = \
+                            clearing_cc(db_obj,
+                                        config_lem,
+                                        offers_uncleared,
+                                        bids_uncleared,
+                                        plotting=plotting,
+                                        plotting_title=plotting_title,
+                                        verbose=verbose)
+                        positions_cleared = pd.concat([positions_cleared, results_ps]).reset_index(drop=True)
+
+                if 'l2h_cc' == type_clearing:
+                    positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
+                        clearing_pp(db_obj,
+                                    config_lem,
+                                    offers_ts_d,
+                                    bids_ts_d,
+                                    type_prioritization='l2h',
+                                    plotting=plotting,
+                                    plotting_title=plotting_title)
+
+                    if not bids_uncleared.empty and not offers_uncleared.empty:
+                        results_ps, offers_uncleared_ps, bids_uncleared_ps, offers_cleared_ps, bids_cleared_ps = clearing_cc(
+                            db_obj,
+                            config_lem,
+                            offers_uncleared,
+                            bids_uncleared,
+                            plotting=plotting,
+                            plotting_title=plotting_title,
+                            verbose=verbose)
+                        positions_cleared = pd.concat([positions_cleared, results_ps]).reset_index(drop=True)
+
+                if 'h2l_cc' == type_clearing:
+                    positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
+                        clearing_pp(db_obj,
+                                    config_lem,
+                                    offers_ts_d,
+                                    bids_ts_d,
+                                    type_prioritization='h2l',
+                                    plotting=plotting,
+                                    plotting_title=plotting_title)
+
+                    if not bids_uncleared.empty and not offers_uncleared.empty:
+                        results_ps, offers_uncleared_ps, bids_uncleared_ps, offers_cleared_ps, bids_cleared_ps = \
+                            clearing_cc(db_obj,
+                                        config_lem,
+                                        offers_uncleared,
+                                        bids_uncleared,
+                                        plotting=plotting,
+                                        plotting_title=plotting_title,
+                                        verbose=verbose)
+                        positions_cleared = pd.concat([positions_cleared, results_ps]).reset_index(drop=True)
+
+                # Combinations WITH consideration of quality premium ###
+                # Standard da AFTER advanced clearing
+                if 'h2l_pda' == type_clearing:
+                    positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
+                        clearing_pp(db_obj,
+                                    config_lem,
+                                    offers_ts_d,
+                                    bids_ts_d,
+                                    type_prioritization='h2l',
+                                    add_premium=True,
+                                    plotting=plotting,
+                                    plotting_title=plotting_title)
+
+                    positions_cleared_da, offers_uncleared_da, bids_uncleared_da, offers_cleared_da, bids_cleared_da = \
+                        clearing_pda(db_obj,
+                                     config_lem,
+                                     offers_uncleared,
+                                     bids_uncleared,
+                                     add_premium=False,
+                                     plotting=plotting,
+                                     plotting_title=plotting_title)
+
+                    positions_cleared = pd.concat([positions_cleared, positions_cleared_da], ignore_index=True)
+
+                if 'l2h_pda' == type_clearing:
+                    positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
+                        clearing_pp(db_obj,
+                                    config_lem,
+                                    offers_ts_d,
+                                    bids_ts_d,
+                                    type_prioritization='l2h',
+                                    add_premium=True,
+                                    plotting=plotting,
+                                    plotting_title=plotting_title)
+
+                    positions_cleared_da, offers_uncleared_da, bids_uncleared_da, offers_cleared_da, bids_cleared_da = \
+                        clearing_pda(db_obj,
+                                     config_lem,
+                                     offers_uncleared,
+                                     bids_uncleared,
+                                     add_premium=False,
+                                     plotting=plotting,
+                                     plotting_title=plotting_title)
+
+                    positions_cleared = pd.concat([positions_cleared, positions_cleared_da], ignore_index=True)
+
+                if 'sep_pda' == type_clearing:
+                    positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
+                        clearing_pp(db_obj,
+                                    config_lem,
+                                    offers_ts_d,
+                                    bids_ts_d,
+                                    type_prioritization='sep',
+                                    add_premium=True,
+                                    plotting=plotting,
+                                    plotting_title=plotting_title)
+
+                    positions_cleared_da, offers_uncleared_da, bids_uncleared_da, offers_cleared_da, bids_cleared_da = \
+                        clearing_pda(db_obj,
+                                     config_lem,
+                                     offers_uncleared,
+                                     bids_uncleared,
+                                     add_premium=False,
+                                     plotting=plotting,
+                                     plotting_title=plotting_title)
+
+                    positions_cleared = pd.concat([positions_cleared, positions_cleared_da], ignore_index=True)
+
+                if 'cc_pda' == type_clearing:
+                    positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
+                        clearing_cc(db_obj,
+                                    config_lem,
+                                    offers_ts_d,
+                                    bids_ts_d,
+                                    add_premium=True,
+                                    plotting=plotting,
+                                    plotting_title=plotting_title,
+                                    verbose=verbose)
+
+                    positions_cleared_da, offers_uncleared_da, bids_uncleared_da, offers_cleared_da, bids_cleared_da = \
+                        clearing_pda(db_obj,
+                                     config_lem,
+                                     offers_uncleared,
+                                     bids_uncleared,
+                                     add_premium=False,
+                                     plotting=plotting,
+                                     plotting_title=plotting_title)
+
+                    positions_cleared = pd.concat([positions_cleared, positions_cleared_da], ignore_index=True)
+
+                if 'cc_h2l_pda' == type_clearing:
+                    positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
+                        clearing_cc(db_obj,
+                                    config_lem,
+                                    offers_ts_d,
+                                    bids_ts_d,
+                                    add_premium=True,
+                                    plotting=plotting,
+                                    plotting_title=plotting_title,
+                                    verbose=verbose)
+
+                    if not bids_uncleared.empty and not offers_uncleared.empty:
+                        # Clear in a preference prioritization for remaining positions
+                        results_pp, offers_uncleared_pp, bids_uncleared_pp, offers_cleared_pp, bids_cleared_pp = \
+                            clearing_pp(db_obj=db_obj,
+                                        config_lem=config_lem,
+                                        offers=offers_uncleared,
+                                        bids=bids_uncleared,
+                                        type_clearing=type_clearing,
+                                        add_premium=True,
+                                        type_prioritization='h2l',
+                                        plotting=plotting,
+                                        plotting_title=f'{plotting_title}; pref. satis.')
+                        positions_cleared = pd.concat([positions_cleared, results_pp]).reset_index(drop=True)
+
+                        positions_cleared_da, offers_uncleared_da, bids_uncleared_da, offers_cleared_da, bids_cleared_da = \
+                            clearing_pda(db_obj,
+                                         config_lem,
+                                         offers_uncleared_pp,
+                                         bids_uncleared_pp,
+                                         add_premium=False,
+                                         plotting=plotting,
+                                         plotting_title=plotting_title)
+
+                        positions_cleared = pd.concat([positions_cleared, positions_cleared_da], ignore_index=True)
+
+                if 'cc_l2h_pda' == type_clearing:
+                    positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
+                        clearing_cc(db_obj,
+                                    config_lem,
+                                    offers_ts_d,
+                                    bids_ts_d,
+                                    add_premium=True,
+                                    plotting=plotting,
+                                    plotting_title=plotting_title,
+                                    verbose=verbose)
+
+                    if not bids_uncleared.empty and not offers_uncleared.empty:
+                        # Clear in a preference prioritization for remaining positions
+                        results_pp, offers_uncleared_pp, bids_uncleared_pp, offers_cleared_pp, bids_cleared_pp = \
+                            clearing_pp(db_obj=db_obj,
+                                        config_lem=config_lem,
+                                        offers=offers_uncleared,
+                                        bids=bids_uncleared,
+                                        type_clearing=type_clearing,
+                                        add_premium=True,
+                                        type_prioritization='l2h',
+                                        plotting=plotting,
+                                        plotting_title=f'{plotting_title}; pref. satis.')
+                        positions_cleared = pd.concat([positions_cleared, results_pp]).reset_index(drop=True)
+
+                        positions_cleared_da, offers_uncleared_da, bids_uncleared_da, offers_cleared_da, bids_cleared_da = \
+                            clearing_pda(db_obj,
+                                         config_lem,
+                                         offers_uncleared_pp,
+                                         bids_uncleared_pp,
+                                         add_premium=False,
+                                         plotting=plotting,
+                                         plotting_title=plotting_title)
+
+                        positions_cleared = pd.concat([positions_cleared, positions_cleared_da], ignore_index=True)
+
+                if 'cc_sep_pda' == type_clearing:
+                    positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
+                        clearing_cc(db_obj,
+                                    config_lem,
+                                    offers_ts_d,
+                                    bids_ts_d,
+                                    add_premium=True,
+                                    plotting=plotting,
+                                    plotting_title=plotting_title,
+                                    verbose=verbose)
+
+                    if not bids_uncleared.empty and not offers_uncleared.empty:
+                        # Clear in a preference prioritization for remaining positions
+                        results_pp, offers_uncleared_pp, bids_uncleared_pp, offers_cleared_pp, bids_cleared_pp = \
+                            clearing_pp(db_obj=db_obj,
+                                        config_lem=config_lem,
+                                        offers=offers_uncleared,
+                                        bids=bids_uncleared,
+                                        type_clearing=type_clearing,
+                                        add_premium=True,
+                                        type_prioritization='sep',
+                                        plotting=plotting,
+                                        plotting_title=f'{plotting_title}; pref. satis.')
+                        positions_cleared = pd.concat([positions_cleared, results_pp]).reset_index(drop=True)
+
+                        positions_cleared_da, offers_uncleared_da, bids_uncleared_da, offers_cleared_da, bids_cleared_da = \
+                            clearing_pda(db_obj,
+                                         config_lem,
+                                         offers_uncleared_pp,
+                                         bids_uncleared_pp,
+                                         add_premium=False,
+                                         plotting=plotting,
+                                         plotting_title=plotting_title)
+
+                        positions_cleared = pd.concat([positions_cleared, positions_cleared_da], ignore_index=True)
+
+                if 'sep_cc_pda' == type_clearing:
+                    positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
+                        clearing_pp(db_obj,
+                                    config_lem,
+                                    offers_ts_d,
+                                    bids_ts_d,
+                                    type_prioritization='sep',
+                                    plotting=plotting,
+                                    plotting_title=plotting_title)
+
+                    if not bids_uncleared.empty and not offers_uncleared.empty:
+                        results_ps, offers_uncleared_ps, bids_uncleared_ps, offers_cleared_ps, bids_cleared_ps = \
+                            clearing_cc(db_obj,
+                                        config_lem,
+                                        offers_uncleared,
+                                        bids_uncleared,
+                                        plotting=plotting,
+                                        plotting_title=plotting_title,
+                                        verbose=verbose)
+                        positions_cleared = pd.concat([positions_cleared, results_ps]).reset_index(drop=True)
+
+                        positions_cleared_da, offers_uncleared_da, bids_uncleared_da, offers_cleared_da, bids_cleared_da = \
+                            clearing_pda(db_obj,
+                                         config_lem,
+                                         offers_uncleared_ps,
+                                         bids_uncleared_ps,
+                                         add_premium=False,
+                                         plotting=plotting,
+                                         plotting_title=plotting_title)
+
+                        positions_cleared = pd.concat([positions_cleared, positions_cleared_da], ignore_index=True)
+
+                if 'l2h_cc_pda' == type_clearing:
+                    positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
+                        clearing_pp(db_obj,
+                                    config_lem,
+                                    offers_ts_d,
+                                    bids_ts_d,
+                                    type_prioritization='l2h',
+                                    plotting=plotting,
+                                    plotting_title=plotting_title)
+
+                    if not bids_uncleared.empty and not offers_uncleared.empty:
+                        results_ps, offers_uncleared_ps, bids_uncleared_ps, offers_cleared_ps, bids_cleared_ps = \
+                            clearing_cc(db_obj,
+                                        config_lem,
+                                        offers_uncleared,
+                                        bids_uncleared,
+                                        plotting=plotting,
+                                        plotting_title=plotting_title,
+                                        verbose=verbose)
+                        positions_cleared = pd.concat([positions_cleared, results_ps]).reset_index(drop=True)
+
+                        positions_cleared_da, offers_uncleared_da, bids_uncleared_da, offers_cleared_da, bids_cleared_da = \
+                            clearing_pda(db_obj,
+                                         config_lem,
+                                         offers_uncleared_ps,
+                                         bids_uncleared_ps,
+                                         add_premium=False,
+                                         plotting=plotting,
+                                         plotting_title=plotting_title)
+
+                        positions_cleared = pd.concat([positions_cleared, positions_cleared_da], ignore_index=True)
+
+                if 'h2l_cc_pda' == type_clearing:
+                    positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
+                        clearing_pp(db_obj,
+                                    config_lem,
+                                    offers_ts_d,
+                                    bids_ts_d,
+                                    type_prioritization='h2l',
+                                    plotting=plotting,
+                                    plotting_title=plotting_title)
+
+                    if not bids_uncleared.empty and not offers_uncleared.empty:
+                        results_ps, offers_uncleared_ps, bids_uncleared_ps, offers_cleared_ps, bids_cleared_ps = \
+                            clearing_cc(db_obj,
+                                        config_lem,
+                                        offers_uncleared,
+                                        bids_uncleared,
+                                        plotting=plotting,
+                                        plotting_title=plotting_title,
+                                        verbose=verbose)
+                        positions_cleared = pd.concat([positions_cleared, results_ps]).reset_index(drop=True)
+
+                        positions_cleared_da, offers_uncleared_da, bids_uncleared_da, offers_cleared_da, bids_cleared_da = \
+                            clearing_pda(db_obj,
+                                         config_lem,
+                                         offers_uncleared_ps,
+                                         bids_uncleared_ps,
+                                         add_premium=False,
+                                         plotting=plotting,
+                                         plotting_title=plotting_title)
+
+                        positions_cleared = pd.concat([positions_cleared, positions_cleared_da], ignore_index=True)
+
+                # Standard pda BEFORE advanced clearing
+                if 'pda_h2l' == type_clearing:
+                    positions_cleared_da, offers_uncleared_da, bids_uncleared_da, offers_cleared_da, bids_cleared_da = \
+                        clearing_pda(db_obj,
+                                     config_lem,
+                                     offers_ts_d,
+                                     bids_ts_d,
+                                     add_premium=False,
+                                     plotting=plotting,
+                                     plotting_title=plotting_title)
+
+                    positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
+                        clearing_pp(db_obj,
+                                    config_lem,
+                                    offers_uncleared_da,
+                                    bids_uncleared_da,
+                                    type_prioritization='pref_h2l',
+                                    add_premium=True,
+                                    plotting=plotting,
+                                    plotting_title=plotting_title)
+
+                    positions_cleared = pd.concat([positions_cleared, positions_cleared_da], ignore_index=True)
+
+                if 'pda_l2h' == type_clearing:
+                    positions_cleared_da, offers_uncleared_da, bids_uncleared_da, offers_cleared_da, bids_cleared_da = \
+                        clearing_pda(db_obj,
+                                     config_lem,
+                                     offers_ts_d,
+                                     bids_ts_d,
+                                     add_premium=False,
+                                     plotting=plotting,
+                                     plotting_title=plotting_title)
+
+                    positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
+                        clearing_pp(db_obj,
+                                    config_lem,
+                                    offers_uncleared_da,
+                                    bids_uncleared_da,
+                                    type_prioritization='l2h',
+                                    add_premium=True,
+                                    plotting=plotting,
+                                    plotting_title=plotting_title)
+
+                    positions_cleared = pd.concat([positions_cleared, positions_cleared_da], ignore_index=True)
+
+                if 'pda_sep' == type_clearing:
+                    positions_cleared_da, offers_uncleared_da, bids_uncleared_da, offers_cleared_da, bids_cleared_da = \
+                        clearing_pda(db_obj,
+                                     config_lem,
+                                     offers_ts_d,
+                                     bids_ts_d,
+                                     add_premium=False,
+                                     plotting=plotting,
+                                     plotting_title=plotting_title)
+
+                    positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
+                        clearing_pp(db_obj,
+                                    config_lem,
+                                    offers_uncleared_da,
+                                    bids_uncleared_da,
+                                    type_prioritization='sep',
+                                    add_premium=True,
+                                    plotting=plotting,
+                                    plotting_title=plotting_title)
+
+                    positions_cleared = pd.concat([positions_cleared, positions_cleared_da], ignore_index=True)
+
+                if 'pda_cc' == type_clearing:
+                    positions_cleared_da, offers_uncleared_da, bids_uncleared_da, offers_cleared_da, bids_cleared_da = \
+                        clearing_pda(db_obj,
+                                     config_lem,
+                                     offers_ts_d,
+                                     bids_ts_d,
+                                     add_premium=False,
+                                     plotting=plotting,
+                                     plotting_title=plotting_title)
+
+                    positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
+                        clearing_cc(db_obj,
+                                    config_lem,
+                                    offers=offers_uncleared_da,
+                                    bids=bids_uncleared_da,
+                                    add_premium=True,
+                                    plotting=plotting,
+                                    plotting_title=plotting_title,
+                                    verbose=verbose)
+
+                    positions_cleared = pd.concat([positions_cleared, positions_cleared_da], ignore_index=True)
+
+                if 'pda_cc_h2l' == type_clearing:
+                    positions_cleared_da, offers_uncleared_da, bids_uncleared_da, offers_cleared_da, bids_cleared_da = \
+                        clearing_pda(db_obj,
+                                     config_lem,
+                                     offers_ts_d,
+                                     bids_ts_d,
+                                     add_premium=False,
+                                     plotting=plotting,
+                                     plotting_title=plotting_title)
+
+                    if not offers_uncleared_da.empty and bids_uncleared_da.empty:
+                        results_ps, offers_uncleared_ps, bids_uncleared_ps, offers_cleared_ps, bids_cleared_ps = \
+                            clearing_cc(db_obj,
+                                        config_lem,
+                                        offers=offers_uncleared_da,
+                                        bids=bids_uncleared_da,
+                                        add_premium=True,
+                                        plotting=plotting,
+                                        plotting_title=plotting_title,
+                                        verbose=verbose)
+
+                        positions_cleared = pd.concat([results_ps, positions_cleared_da], ignore_index=True)
+
+                        results_pp, offers_uncleared_pp, bids_uncleared_pp, offers_cleared_pp, bids_cleared_pp = \
+                            clearing_pp(db_obj=db_obj,
+                                        config_lem=config_lem,
+                                        offers=offers_uncleared_ps,
+                                        bids=bids_uncleared_ps,
+                                        type_clearing=type_clearing,
+                                        add_premium=True,
+                                        type_prioritization='h2l',
+                                        plotting=plotting,
+                                        plotting_title=f'{plotting_title}; pref. satis.')
+                        positions_cleared = pd.concat([positions_cleared, results_pp]).reset_index(drop=True)
+
+                if 'pda_cc_l2h' == type_clearing:
+                    positions_cleared_da, offers_uncleared_da, bids_uncleared_da, offers_cleared_da, bids_cleared_da = \
+                        clearing_pda(db_obj,
+                                     config_lem,
+                                     offers_ts_d,
+                                     bids_ts_d,
+                                     add_premium=False,
+                                     plotting=plotting,
+                                     plotting_title=plotting_title)
+
+                    if not offers_uncleared_da.empty and bids_uncleared_da.empty:
+                        results_ps, offers_uncleared_ps, bids_uncleared_ps, offers_cleared_ps, bids_cleared_ps = \
+                            clearing_cc(db_obj,
+                                        config_lem,
+                                        offers=offers_uncleared_da,
+                                        bids=bids_uncleared_da,
+                                        add_premium=True,
+                                        plotting=plotting,
+                                        plotting_title=plotting_title,
+                                        verbose=verbose)
+
+                        positions_cleared = pd.concat([results_ps, positions_cleared_da], ignore_index=True)
+
+                        results_pp, offers_uncleared_pp, bids_uncleared_pp, offers_cleared_pp, bids_cleared_pp = \
+                            clearing_pp(db_obj=db_obj,
+                                        config_lem=config_lem,
+                                        offers=offers_uncleared_ps,
+                                        bids=bids_uncleared_ps,
+                                        type_clearing=type_clearing,
+                                        add_premium=True,
+                                        type_prioritization='l2h',
+                                        plotting=plotting,
+                                        plotting_title=f'{plotting_title}; pref. satis.')
+                        positions_cleared = pd.concat([positions_cleared, results_pp]).reset_index(drop=True)
+
+                if 'pda_cc_sep' == type_clearing:
+                    positions_cleared_da, offers_uncleared_da, bids_uncleared_da, offers_cleared_da, bids_cleared_da = \
+                        clearing_pda(db_obj,
+                                     config_lem,
+                                     offers_ts_d,
+                                     bids_ts_d,
+                                     add_premium=False,
+                                     plotting=plotting,
+                                     plotting_title=plotting_title)
+
+                    if not offers_uncleared_da.empty and bids_uncleared_da.empty:
+                        results_ps, offers_uncleared_ps, bids_uncleared_ps, offers_cleared_ps, bids_cleared_ps = \
+                            clearing_cc(db_obj,
+                                        config_lem,
+                                        offers=offers_uncleared_da,
+                                        bids=bids_uncleared_da,
+                                        add_premium=True,
+                                        plotting=plotting,
+                                        plotting_title=plotting_title,
+                                        verbose=verbose)
+
+                        positions_cleared = pd.concat([results_ps, positions_cleared_da], ignore_index=True)
+
+                        results_pp, offers_uncleared_pp, bids_uncleared_pp, offers_cleared_pp, bids_cleared_pp = \
+                            clearing_pp(db_obj=db_obj,
+                                        config_lem=config_lem,
+                                        offers=offers_uncleared_ps,
+                                        bids=bids_uncleared_ps,
+                                        type_clearing=type_clearing,
+                                        add_premium=True,
+                                        type_prioritization='sep',
+                                        plotting=plotting,
+                                        plotting_title=f'{plotting_title}; pref. satis.')
+                        positions_cleared = pd.concat([positions_cleared, results_pp]).reset_index(drop=True)
+
+                if 'pda_h2l_cc' == type_clearing:
+                    positions_cleared_da, offers_uncleared_da, bids_uncleared_da, offers_cleared_da, bids_cleared_da = \
+                        clearing_pda(db_obj,
+                                     config_lem,
+                                     offers_ts_d,
+                                     bids_ts_d,
+                                     add_premium=False,
+                                     plotting=plotting,
+                                     plotting_title=plotting_title)
+
+                    if not offers_uncleared_da.empty and bids_uncleared_da.empty:
+                        results_pp, offers_uncleared_pp, bids_uncleared_pp, offers_cleared_pp, bids_cleared_pp = \
+                            clearing_pp(db_obj=db_obj,
+                                        config_lem=config_lem,
+                                        offers=offers_uncleared_da,
+                                        bids=bids_uncleared_da,
+                                        type_clearing=type_clearing,
+                                        add_premium=True,
+                                        type_prioritization='h2l',
+                                        plotting=plotting,
+                                        plotting_title=f'{plotting_title}; pref. satis.')
+                        positions_cleared = pd.concat([positions_cleared_da, results_pp]).reset_index(drop=True)
+
+                        results_ps, offers_uncleared_ps, bids_uncleared_ps, offers_cleared_ps, bids_cleared_ps = \
+                            clearing_cc(db_obj,
+                                        config_lem,
+                                        offers=offers_uncleared_pp,
+                                        bids=bids_uncleared_pp,
+                                        add_premium=True,
+                                        plotting=plotting,
+                                        plotting_title=plotting_title,
+                                        verbose=verbose)
+
+                        positions_cleared = pd.concat([positions_cleared, results_ps], ignore_index=True)
+
+                if 'pda_l2h_cc' == type_clearing:
+                    positions_cleared_da, offers_uncleared_da, bids_uncleared_da, offers_cleared_da, bids_cleared_da = \
+                        clearing_pda(db_obj,
+                                     config_lem,
+                                     offers_ts_d,
+                                     bids_ts_d,
+                                     add_premium=False,
+                                     plotting=plotting,
+                                     plotting_title=plotting_title)
+
+                    if not offers_uncleared_da.empty and bids_uncleared_da.empty:
+                        results_pp, offers_uncleared_pp, bids_uncleared_pp, offers_cleared_pp, bids_cleared_pp = \
+                            clearing_pp(db_obj=db_obj,
+                                        config_lem=config_lem,
+                                        offers=offers_uncleared_da,
+                                        bids=bids_uncleared_da,
+                                        type_clearing=type_clearing,
+                                        add_premium=True,
+                                        type_prioritization='l2h',
+                                        plotting=plotting,
+                                        plotting_title=f'{plotting_title}; pref. satis.')
+                        positions_cleared = pd.concat([positions_cleared_da, results_pp]).reset_index(drop=True)
+
+                        results_ps, offers_uncleared_ps, bids_uncleared_ps, offers_cleared_ps, bids_cleared_ps = \
+                            clearing_cc(db_obj,
+                                        config_lem,
+                                        offers=offers_uncleared_pp,
+                                        bids=bids_uncleared_pp,
+                                        add_premium=True,
+                                        plotting=plotting,
+                                        plotting_title=plotting_title,
+                                        verbose=verbose)
+
+                        positions_cleared = pd.concat([positions_cleared, results_ps], ignore_index=True)
+
+                if 'pda_sep_cc' == type_clearing:
+                    positions_cleared_da, offers_uncleared_da, bids_uncleared_da, offers_cleared_da, bids_cleared_da = \
+                        clearing_pda(db_obj,
+                                     config_lem,
+                                     offers_ts_d,
+                                     bids_ts_d,
+                                     add_premium=False,
+                                     plotting=plotting,
+                                     plotting_title=plotting_title)
+
+                    if not offers_uncleared_da.empty and bids_uncleared_da.empty:
+                        results_pp, offers_uncleared_pp, bids_uncleared_pp, offers_cleared_pp, bids_cleared_pp = \
+                            clearing_pp(db_obj=db_obj,
+                                        config_lem=config_lem,
+                                        offers=offers_uncleared_da,
+                                        bids=bids_uncleared_da,
+                                        type_clearing=type_clearing,
+                                        add_premium=True,
+                                        type_prioritization='sep',
+                                        plotting=plotting,
+                                        plotting_title=f'{plotting_title}; pref. satis.')
+                        positions_cleared = pd.concat([positions_cleared_da, results_pp]).reset_index(drop=True)
+
+                        results_ps, offers_uncleared_ps, bids_uncleared_ps, offers_cleared_ps, bids_cleared_ps = \
+                            clearing_cc(db_obj,
+                                        config_lem,
+                                        offers=offers_uncleared_pp,
+                                        bids=bids_uncleared_pp,
+                                        add_premium=True,
+                                        plotting=plotting,
+                                        plotting_title=plotting_title,
+                                        verbose=verbose)
+
+                        positions_cleared = pd.concat([positions_cleared, results_ps], ignore_index=True)
+
+                # Check whether market has cleared a volume
+                if not positions_cleared.empty:
+                    if config_lem['share_quality_logging_extended']:
+                        positions_cleared = calc_market_position_shares(db_obj, config_lem,
+                                                                        offers_ts_d, bids_ts_d, positions_cleared)
+                    results_clearing = pd.concat([results_clearing, positions_cleared], ignore_index=True)
+        global global_count_0
+        global_count_0 += 1
+        results_clearing.to_csv(f'{global_count_0}_pre_results.csv')
+
+        df_dict_bid = dict(results_clearing.groupby(['id_user_bid', 'number_position_bid']).size().sort_values().
+                           groupby(level=0).tail(1).reset_index().set_index('id_user_bid')['number_position_bid'])
+        df_dict_offer = dict(results_clearing.groupby(['id_user_offer', 'number_position_offer']).size().sort_values().
+                             groupby(level=0).tail(1).reset_index().set_index('id_user_offer')['number_position_offer'])
+
+        list_df_bids = []
+        for id in df_dict_bid:
+            temp_bid_id = bids[bids['id_user']==id]
+            temp_bid_position = temp_bid_id[temp_bid_id['number_position']==df_dict_bid[id]]
+            list_df_bids.append(temp_bid_position)
+
+        df_bids_new = pd.concat(list_df_bids, axis=0)
+
+        list_df_offers = []
+        for id in df_dict_offer:
+            temp_offer_id = offers[offers['id_user']==id]
+            temp_offer_position = temp_offer_id[temp_offer_id['number_position']==df_dict_offer[id]]
+            list_df_offers.append(temp_offer_position)
+
+        df_offers_new = pd.concat(list_df_offers, axis=0)
+
+        # Create empty results df
+        results_clearing = pd.DataFrame()
+        positions_cleared = pd.DataFrame()
+
+        for i in iterations:
+            # Continuous clearing time, incrementing by market period
+            t_clearing_current = t_clearing_first + config_lem['interval_clearing'] * i
+            # Extract data for specific time of delivery
+            offers_ts_d = df_offers_new[df_offers_new[db_obj.db_param.TS_DELIVERY] == t_clearing_current]
+            bids_ts_d = df_bids_new[df_bids_new[db_obj.db_param.TS_DELIVERY] == t_clearing_current]
+            # t_d_last_update = get_update_time(bids_sorted, offers_sorted)
+
+            # Check whether offers or bids are empty or last update in offers/bids is newer than last clearing time
+            if offers_ts_d.empty or bids_ts_d.empty:  # or t_d_last_update < t_clearing_start
+                if verbose:
+                    iterations.set_description(str(pd.Timestamp(t_clearing_current, unit="s", tz="Europe/Berlin")) +
+                                               ' No clearing - supply and/or bids are empty')
+            # Offers and bids are not empty and last update in offers/bids is newer than last clearing time
+            else:
+                if verbose:
+                    iterations.set_description(str(pd.Timestamp(t_clearing_current, unit="s", tz="Europe/Berlin")) +
+                                               ' Clearing                                  ')
+                # Check whether this is the first clearing period and whether the flag retailer bids is true
+                if config_retailer is not None:
+                    # Insert retailer bids and offers
+                    bids_ts_d, offers_ts_d = _add_retailer_bids(db_obj,
+                                                                config_retailer,
+                                                                t_clearing_current,
+                                                                bids_ts_d,
+                                                                offers_ts_d)
+
+                plotting_title = pd.Timestamp(t_clearing_current, unit="s", tz="Europe/Berlin")
+
+                # Combinations WITHOUT consideration of quality premium
+                if 'pda' == type_clearing:
+                    positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
+                        clearing_pda(db_obj,
+                                     config_lem,
+                                     offers_ts_d,
+                                     bids_ts_d,
+                                     plotting=plotting,
+                                     plotting_title=plotting_title)
+
+                # Check whether market has cleared a volume
+                if not positions_cleared.empty:
+                    if config_lem['share_quality_logging_extended']:
+                        positions_cleared = calc_market_position_shares(db_obj, config_lem,
+                                                                        offers_ts_d, bids_ts_d, positions_cleared)
+                    results_clearing = pd.concat([results_clearing, positions_cleared], ignore_index=True)
+
+        global global_count_1
+        global_count_1 += 1
+        results_clearing.to_csv(f'{global_count_1}_post_results.csv')
+        t_clearing_end = round(time.time())
+        if verbose:
+            iterations.set_description('Post-processing: ', pd.Timestamp(t_clearing_end, unit="s",
+                                                                         tz="Europe/Berlin"))
+        if results_clearing.empty and verbose:
+            iterations.set_description('Empty market results: nothing has been cleared.')
+        if not results_clearing.empty:
+            # Perform a post-processing
+            results_clearing = _post_processing_results(db_obj=db_obj, results=results_clearing,
+                                                        t_clearing_start=t_clearing_start)
+            # only update user balances if this is the first clearing type
+            if j == 0:
+                # Find column with relevant prices to update user balances
+                name_column_price = \
+                    [x for x in results_clearing.columns if config_lem['types_pricing_ex_ante'][0] in x][0]
+                # Update user balances
+                transactions_market = _log_transactions_market(db_obj=db_obj,
+                                                               config_lem=config_lem,
+                                                               results_market=results_clearing,
+                                                               name_column_price=name_column_price,
+                                                               types_quality=config_lem['types_quality'])
+                _update_user_balances(db_obj=db_obj,
+                                      df_transactions=transactions_market)
+            # Write results back to database
+            db_obj.log_results_market(results_market=results_clearing,
+                                      name_table=db_obj.db_param.NAME_TABLE_RESULTS_MARKET_EX_ANTE_ + type_clearing)
+
+        # save all results to dictionary
+        results_clearing_all[type_clearing] = results_clearing
+
+        # General Information
+        t_post_processing_end = round(time.time())
+        if verbose:
+            print('\nTiming')
+            print('Internal clearing time:', str(t_clearing_end - t_clearing_start))
+            print('Post-processing time:', str(t_post_processing_end - t_clearing_end))
+            print('Market clearing ended, total time:', str(t_post_processing_end - t_clearing_start), 'seconds')
+
+        time_clearing_execution[type_clearing] = t_clearing_end - t_clearing_start
+    return results_clearing_all, offers, bids, time_clearing_execution
+
+def market_clearing_test(db_obj,
+                    config_lem,
+                    config_retailer=None,
+                    t_override=None,
+                    plotting=False,
+                    verbose=False):
+    """
+    Function clears all offers and bids from database and writes stores unmatched and matched bids back in database.
+    @param db_obj: database connection object
+    @param config_lem: configuration dictionary of local energy market
+    @param config_retailer: configuration dictionary of retailer
+    @param t_override: defines the current time, mostly used for simulation purpose [unix time]
+    @param plotting: boolean value to visualize clearing results
+    @param verbose: boolean value to print updates to console
+    """
+    # If t_now is not set, then current time
+    if t_override is None:
+        t_now = round(time.time())
+    else:
+        t_now = t_override
+
+    # If market horizon is not set, then set to lem_param
+    if config_lem['horizon_clearing'] is None:
+        config_lem['horizon_clearing'] = 900
+
+    # Check whether clearing types have been specified
+    if config_lem['types_clearing_ex_ante'] is None:
+        config_lem['types_clearing_ex_ante'] = {0: "pda"}
+
+    # Calculate number of market clearings
+    n_clearings = int(config_lem['horizon_clearing'] / config_lem['interval_clearing'])
+
+    # Read offers and bids from db
+    bids, offers = db_obj.get_open_positions(clear_table=config_lem['positions_delete'],
+                                             archive=config_lem['positions_archive'])
+
+    # Jump to end of function if offers or bids are empty
+    if offers.empty or bids.empty:
+        if verbose:
+            print('All offers and/or bids are empty. No clearing possible')
+        return
+
+    bids = convert_qualities_to_int(db_obj, bids, config_lem['types_quality'])
+    offers = convert_qualities_to_int(db_obj, offers, config_lem['types_quality'])
+    results_clearing_all = {}
+    time_clearing_execution = {}
+
+    # for-loop for all specified clearing types
+    for j in range(len(config_lem['types_clearing_ex_ante'])):
+        type_clearing = config_lem['types_clearing_ex_ante'][j]
+        # Set clearing time
+        t_clearing_start = round(time.time())
+        if verbose:
+            print('\n\n### MARKET CLEARING STARTED ###', pd.Timestamp(t_clearing_start, unit="s", tz="Europe/Berlin"))
+            print(f'Market type: {type_clearing}')
+            print('Market contains', str(len(offers)), 'valid offers and', str(len(bids)), 'valid bids.')
+        # Create empty results df
+        results_clearing = pd.DataFrame()
+        positions_cleared = pd.DataFrame()
+        # Set first clearing interval to next clearing interval period (ceil up to next clearing interval)
+        t_clearing_first = t_now - (t_now % config_lem['interval_clearing']) + config_lem['interval_clearing']
+        # Go through all specified number of clearings
+        if verbose:
+            iterations = tqdm(range(0, n_clearings))
+        else:
+            iterations = range(0, n_clearings)
+        for i in iterations:
+            # Continuous clearing time, incrementing by market period
+            t_clearing_current = t_clearing_first + config_lem['interval_clearing'] * i
+            # Extract data for specific time of delivery
+            offers_ts_d = offers[offers[db_obj.db_param.TS_DELIVERY] == t_clearing_current]
+            bids_ts_d = bids[bids[db_obj.db_param.TS_DELIVERY] == t_clearing_current]
+            # t_d_last_update = get_update_time(bids_sorted, offers_sorted)
+
+            # Check whether offers or bids are empty or last update in offers/bids is newer than last clearing time
+            if offers_ts_d.empty or bids_ts_d.empty:  # or t_d_last_update < t_clearing_start
+                if verbose:
+                    iterations.set_description(str(pd.Timestamp(t_clearing_current, unit="s", tz="Europe/Berlin")) +
+                                               ' No clearing - supply and/or bids are empty')
+            # Offers and bids are not empty and last update in offers/bids is newer than last clearing time
+            else:
+                if verbose:
+                    iterations.set_description(str(pd.Timestamp(t_clearing_current, unit="s", tz="Europe/Berlin")) +
+                                               ' Clearing                                  ')
+                # Check whether this is the first clearing period and whether the flag retailer bids is true
+                if config_retailer is not None:
+                    # Insert retailer bids and offers
+                    bids_ts_d, offers_ts_d = _add_retailer_bids(db_obj,
+                                                                config_retailer,
+                                                                t_clearing_current,
+                                                                bids_ts_d,
+                                                                offers_ts_d)
+
+                plotting_title = pd.Timestamp(t_clearing_current, unit="s", tz="Europe/Berlin")
+
+                # Combinations WITHOUT consideration of quality premium
+                if 'pda' == type_clearing:
+                    positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
+                        clearing_pda(db_obj,
+                                     config_lem,
+                                     offers_ts_d,
+                                     bids_ts_d,
+                                     plotting=plotting,
+                                     plotting_title=plotting_title)
+
+                    # clearing_block(db_obj,
+                    #                config_lem,
+                    #                offers_ts_d,
+                    #                bids_ts_d,
+                    #                plotting=plotting,
+                    #                plotting_title=plotting_title)
 
                 if 'h2l' == type_clearing:
                     positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
@@ -901,6 +1910,8 @@ def market_clearing(db_obj,
                     results_clearing = pd.concat([results_clearing, positions_cleared], ignore_index=True)
 
         t_clearing_end = round(time.time())
+        results_clearing.to_csv('temp.csv')
+        print(results_clearing)
         if verbose:
             iterations.set_description('Post-processing: ', pd.Timestamp(t_clearing_end, unit="s",
                                                                          tz="Europe/Berlin"))
@@ -972,6 +1983,191 @@ def clearing_pda(db_obj,
     bids_cleared = pd.DataFrame()
     positions_cleared = pd.DataFrame()
     qty_energy_cleared = 0
+    # Check whether bids or offers are empty
+    if bids.empty or offers.empty or \
+            bids[bids[db_obj.db_param.QTY_ENERGY] > 0].empty or \
+            offers[offers[db_obj.db_param.QTY_ENERGY] > 0].empty:
+        offers_uncleared = offers
+        bids_uncleared = bids
+        return positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared
+    if type_clearing is None:
+        type_clearing = 'da'
+    # Exclude bids/offers if they have zero quantity
+    bids = bids[bids[db_obj.db_param.QTY_ENERGY] > 0]
+    offers = offers[offers[db_obj.db_param.QTY_ENERGY] > 0]
+    # Aggregate equal positions
+    bids = _aggregate_identical_positions(db_obj=db_obj,
+                                          positions=bids,
+                                          subset=[db_obj.db_param.PRICE_ENERGY, db_obj.db_param.QUALITY_ENERGY,
+                                                  db_obj.db_param.ID_USER])
+    offers = _aggregate_identical_positions(db_obj=db_obj,
+                                            positions=offers,
+                                            subset=[db_obj.db_param.PRICE_ENERGY, db_obj.db_param.QUALITY_ENERGY,
+                                                    db_obj.db_param.ID_USER])
+    if add_premium:
+        bids[db_obj.db_param.PRICE_ENERGY] += (bids[db_obj.db_param.PRICE_ENERGY] *
+                                               bids[db_obj.db_param.PREMIUM_PREFERENCE_QUALITY] / 100).astype(int)
+    if shuffle:
+        # Shuffle all bids and offers, so that submission speed does not matter
+        bids = bids.sample(frac=1).reset_index(drop=True)
+        offers = offers.sample(frac=1).reset_index(drop=True)
+    try:
+        # Sort values first by price and quality
+        offers_sorted = offers.sort_values(by=[db_obj.db_param.PRICE_ENERGY, db_obj.db_param.QUALITY_ENERGY],
+                                           ascending=[True, False],
+                                           ignore_index=True)
+        bids_sorted = bids.sort_values(by=[db_obj.db_param.PRICE_ENERGY, db_obj.db_param.QUALITY_ENERGY],
+                                       ascending=[False, False],
+                                       ignore_index=True)
+        # Set index of bids and offers to cumulated energy qty sums
+        bids_sorted.set_index(bids_sorted[db_obj.db_param.QTY_ENERGY].cumsum(), inplace=True)
+        offers_sorted.set_index(offers_sorted[db_obj.db_param.QTY_ENERGY].cumsum(), inplace=True)
+        # Merge bids and offers
+        positions_merged = offers_sorted.merge(bids_sorted, how='outer', left_index=True, right_index=True,
+                                               indicator=False,
+                                               suffixes=[db_obj.db_param.EXTENSION_OFFER,
+                                                         db_obj.db_param.EXTENSION_BID]).fillna(
+            method='backfill')
+
+        # Extract merged bids and offers for which offer price is lower or equal to bid price
+        positions_cleared = positions_merged[
+            positions_merged[db_obj.db_param.PRICE_ENERGY + db_obj.db_param.EXTENSION_OFFER] <=
+            positions_merged[db_obj.db_param.PRICE_ENERGY + db_obj.db_param.EXTENSION_BID]].copy()
+        # Convert floats (occur due to merging with NaN rows) to ints
+        for column in positions_cleared.columns:
+            if positions_cleared[column].dtype == np.float64:
+                positions_cleared[column] = positions_cleared[column].astype(int)
+        # Check whether cleared quantities are empty
+        if not positions_cleared.empty:
+            for i in range(len(config_lem['types_pricing_ex_ante'])):
+                type_pricing = config_lem['types_pricing_ex_ante'][i]
+                # Calculate uniform prices if demanded
+                if 'uniform' == config_lem['types_pricing_ex_ante'][i]:
+                    positions_cleared.loc[:, db_obj.db_param.PRICE_ENERGY_MARKET_ + type_pricing] = \
+                        ((positions_cleared[db_obj.db_param.PRICE_ENERGY_OFFER].iloc[-1] +
+                          positions_cleared[db_obj.db_param.PRICE_ENERGY_BID].iloc[-1]) / 2).astype(int)
+
+                # Calculate discriminative prices if demanded
+                if 'discriminatory' == config_lem['types_pricing_ex_ante'][i]:
+                    positions_cleared.loc[:, db_obj.db_param.PRICE_ENERGY_MARKET_ + type_pricing] = \
+                        ((positions_cleared[db_obj.db_param.PRICE_ENERGY_OFFER] +
+                          positions_cleared[db_obj.db_param.PRICE_ENERGY_BID].iloc[:]) / 2).astype(int)
+            # Calculate traded energy quantities
+            positions_cleared = positions_cleared.assign(**{
+                db_obj.db_param.QTY_ENERGY_TRADED: [positions_cleared.index[0]] + list(
+                    np.diff(positions_cleared.index))})
+            # Assign traded quantities to bid and offer quantities
+            positions_cleared = positions_cleared.assign(**{
+                db_obj.db_param.QTY_ENERGY + db_obj.db_param.EXTENSION_OFFER: positions_cleared[
+                    db_obj.db_param.QTY_ENERGY_TRADED]})
+            positions_cleared = positions_cleared.assign(**{
+                db_obj.db_param.QTY_ENERGY + db_obj.db_param.EXTENSION_BID: positions_cleared[
+                    db_obj.db_param.QTY_ENERGY_TRADED]})
+            # Cleared energy quantity is equal to sum of cleared energy quantities
+            qty_energy_cleared = positions_cleared[db_obj.db_param.QTY_ENERGY_TRADED].sum()
+            # Extract cleared bids and offers
+            offers_cleared = _extract_positions_by_extension(db_obj=db_obj,
+                                                             positions_merged=positions_cleared,
+                                                             extension=db_obj.db_param.EXTENSION_OFFER)
+            bids_cleared = _extract_positions_by_extension(db_obj=db_obj,
+                                                           positions_merged=positions_cleared,
+                                                           extension=db_obj.db_param.EXTENSION_BID)
+
+            # Calculate shares of labelled energy of cleared positions
+            for i in config_lem['types_quality']:
+                type_quality = config_lem['types_quality'][i]
+                # Shares of offers in cleared positions
+                positions_cleared_quality_offer = positions_cleared.loc[
+                    positions_cleared[db_obj.db_param.QUALITY_ENERGY_OFFER] == i]
+                qty_energy_cleared_quality_offer = positions_cleared_quality_offer[
+                    db_obj.db_param.QTY_ENERGY_TRADED].sum()
+                positions_cleared = positions_cleared.assign(
+                    **{db_obj.db_param.SHARE_QUALITY_OFFERS_CLEARED_ + type_quality: round(
+                        qty_energy_cleared_quality_offer / qty_energy_cleared * 100)})
+                if config_lem['share_quality_logging_extended']:
+                    # Shares of preferences in cleared positions
+                    positions_cleared_preference_bid = positions_cleared.loc[
+                        positions_cleared[db_obj.db_param.QUALITY_ENERGY_BID] == i]
+                    qty_energy_cleared_preference_bid = positions_cleared_preference_bid[
+                        db_obj.db_param.QTY_ENERGY_TRADED].sum()
+                    positions_cleared = positions_cleared.assign(
+                        **{db_obj.db_param.SHARE_PREFERENCE_BIDS_CLEARED_ + type_quality: round(
+                            qty_energy_cleared_preference_bid / qty_energy_cleared * 100)})
+
+        # Drop duplicate ts_delivery column
+        positions_cleared = positions_cleared.rename(columns={'ts_delivery_offer': 'ts_delivery'})
+        positions_cleared = positions_cleared.drop(columns={'ts_delivery_bid'})
+        # Extract all uncleared bids_sorted/offers_sorted
+        bids_offers_uncleared = positions_merged[
+            positions_merged[db_obj.db_param.PRICE_ENERGY + db_obj.db_param.EXTENSION_OFFER] >
+            positions_merged[db_obj.db_param.PRICE_ENERGY + db_obj.db_param.EXTENSION_BID]]
+        bids_offers_uncleared = pd.concat([bids_offers_uncleared,
+            positions_merged[positions_merged.isna().any(axis=1)]])
+        if not bids_offers_uncleared.empty:
+            # Assign merged quantities to positions
+            qty_merged = [bids_offers_uncleared.index[0] - qty_energy_cleared] + \
+                         list(np.diff(bids_offers_uncleared.index))
+            bids_offers_uncleared = bids_offers_uncleared.assign(**{
+                db_obj.db_param.QTY_ENERGY + db_obj.db_param.EXTENSION_OFFER: qty_merged})
+            bids_offers_uncleared = bids_offers_uncleared.assign(**{
+                db_obj.db_param.QTY_ENERGY + db_obj.db_param.EXTENSION_BID: qty_merged})
+            # Extract uncleared bids and offers, drop nan rows
+            offers_uncleared = _extract_positions_by_extension(db_obj=db_obj,
+                                                               positions_merged=bids_offers_uncleared,
+                                                               extension=db_obj.db_param.EXTENSION_OFFER)
+            bids_uncleared = _extract_positions_by_extension(db_obj=db_obj,
+                                                             positions_merged=bids_offers_uncleared,
+                                                             extension=db_obj.db_param.EXTENSION_BID)
+
+        if plotting:
+            if plotting_title is None:
+                plotting_title = f'Clearing: standard'
+            else:
+                plotting_title = f'{plotting_title}'
+            # Plot results
+            plot_clearing_results(db_obj=db_obj,
+                                  offers=offers_sorted, bids=bids_sorted, positions_cleared=positions_cleared,
+                                  show=True, types_pricing=config_lem['types_pricing_ex_ante'],
+                                  plotting_title=plotting_title,
+                                  y_lim=plotting_ylim)
+
+    except Exception:
+        traceback.print_exc()
+
+    return positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared
+
+
+def clearing_block(db_obj,
+                 config_lem,
+                 offers,
+                 bids,
+                 type_clearing=None,
+                 shuffle=True,
+                 add_premium=False,
+                 plotting=False,
+                 plotting_title=None,
+                 plotting_ylim=None):
+    """
+    Function clears offers and bids with a double sided auction with block bids
+    @param db_obj: DatabaseConnection object
+    @param config_lem: configuration dictionary for clearing
+    @param offers: dataframe of various offers consisting of price, quantity, quality, ts_delivery, id and type
+    @param bids: dataframe of various bids consisting of price, quantity, quality, ts_delivery, id and type
+    @param type_clearing: clearing type that is using clearing da functionality
+    @param shuffle: boolean value to shuffle bids and offers before clearing for fairness
+    @param add_premium: boolean value to add premium to bid prices
+    @param plotting: boolean value to plot clearing results
+    @param plotting_title: title of plot, ignored if plotting is false
+    @param plotting_ylim: list of two values to predefine limits of y axis
+    @return: returns cleared and uncleared bids and offers in multiple dataframes
+    """
+    offers_uncleared = pd.DataFrame()
+    bids_uncleared = pd.DataFrame()
+    offers_cleared = pd.DataFrame()
+    bids_cleared = pd.DataFrame()
+    positions_cleared = pd.DataFrame()
+    qty_energy_cleared = 0
+    # print(bids[['id_user', 'number_position', 't_submission', 'ts_delivery']])
     # Check whether bids or offers are empty
     if bids.empty or offers.empty or \
             bids[bids[db_obj.db_param.QTY_ENERGY] > 0].empty or \

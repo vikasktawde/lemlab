@@ -770,7 +770,12 @@ class ScenarioExecutor:
         if self.config["lem"]["types_clearing_ex_ante"]:
             clearing_ex_ante.market_clearing(db_obj=self.db_conn_admin,
                                              config_lem=self.config["lem"],
-                                             t_override=self.t_now)
+                                             t_override=self.t_now,
+                                             verbose=False)
+            # clearing_ex_ante.market_clearing_test(db_obj=self.db_conn_admin,
+            #                                  config_lem=self.config["lem"],
+            #                                  t_override=self.t_now,
+            #                                  verbose=True)
         # if ex-post markets are to be calculated, this is done here
         if self.config["lem"]["types_clearing_ex_post"]:
             lem_settlement.set_community_price(db_obj=self.db_conn_admin,

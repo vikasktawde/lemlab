@@ -108,27 +108,38 @@ class Prosumer:
 
         self.get_predictions()
         # then, execute model predictive control
-        if len(self._get_list_plants()) - len(self._get_list_plants(plant_type="hh")) == 0:
+        # if len(self._get_list_plants()) - len(self._get_list_plants(plant_type="hh")) == 0:
+        #     self.controller_model_predictive(controller="hh")
+        # else:
+        #     self.controller_model_predictive(controller="mpc")
+
+        if len(self._get_list_plants(plant_type="pv")) > 0:
+            for i, prob in enumerate([0.3, 0.4, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8]):
+                self.controller_model_predictive_test(meter_tag=i, controller="mpc")
+        elif len(self._get_list_plants()) - len(self._get_list_plants(plant_type="hh")) == 0:
             self.controller_model_predictive(controller="hh")
         else:
             self.controller_model_predictive(controller="mpc")
 
-        #*******Important code ********
-        if len(self._get_list_plants(plant_type="pv")) > 0:
+        ## *******Important code ********
+        # if len(self._get_list_plants(plant_type="pv")) > 0:
             # global global_count
             # global_count += 1
             # self.mpc_table.to_csv(f'{global_count}_mpc_table_before.csv')
-            for i, prob in enumerate([0.3, 0.4, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8]):
-                self.controller_model_predictive_test(meter_tag=i, controller="mpc")
+            # for i, prob in enumerate([0.3, 0.4, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8]):
+            #     self.controller_model_predictive_test(meter_tag=i, controller="mpc")
             # self.mpc_table.to_csv(f'{global_count}_mpc_table_after.csv')
 
         if len(self._get_list_plants(plant_type="pv")) > 0:
             if db_obj.lem_config["types_clearing_ex_ante"]:
                 self.market_agent_test(db_obj=db_obj, clear_positions=clear_positions)
+        else:
+            if db_obj.lem_config["types_clearing_ex_ante"]:
+                self.market_agent(db_obj=db_obj, clear_positions=clear_positions)
 
         # then, execute market agent if ex-ante market
-        if db_obj.lem_config["types_clearing_ex_ante"]:
-            self.market_agent(db_obj=db_obj, clear_positions=clear_positions)
+        # if db_obj.lem_config["types_clearing_ex_ante"]:
+        #     self.market_agent(db_obj=db_obj, clear_positions=clear_positions)
 
     def post_clearing_activity(self, db_obj):
         market_type = "ex_ante" if db_obj.lem_config["types_clearing_ex_ante"] else "ex_post"
@@ -806,8 +817,8 @@ class Prosumer:
             # Save results to file, which will be used as basis for controller_real_time set points and market trading
             self.mpc_table = pd.DataFrame.from_dict(dict_mpc_table)
 
-        # ft.write_dataframe(self.mpc_table.reset_index().rename(columns={"index": "timestamp"}),
-        #                    f"{self.path}/controller_mpc.ft")
+        ft.write_dataframe(self.mpc_table.reset_index().rename(columns={"index": "timestamp"}),
+                           f"{self.path}/controller_mpc.ft")
 
     def controller_model_predictive(self, controller="mpc"):
         """Execute the model predictive controller_real_time for the market participant given the predicted
@@ -1310,7 +1321,8 @@ class Prosumer:
 
         list_df_bids = []
 
-        for col in meter_grid_cols:
+        for number_position, col in enumerate(meter_grid_cols):
+        # for col in meter_grid_cols:
             df_potential_bids_temp = df_potential_bids.copy()
             df_potential_bids_temp.rename(columns={col: "net_bids"}, inplace=True)
             df_potential_bids_temp["net_bids"] = df_potential_bids_temp["net_bids"] - self.matched_bids_by_timestep["net_bids"]
@@ -1384,7 +1396,7 @@ class Prosumer:
                         dict_positions[db_obj.db_param.ID_USER].append(self.config_dict['id_market_agent'])
                         dict_positions[db_obj.db_param.QTY_ENERGY].append(abs(energy_position))
                         dict_positions[db_obj.db_param.TYPE_POSITION].append("offer" if energy_position > 0 else "bid")
-                        dict_positions[db_obj.db_param.NUMBER_POSITION].append(0)
+                        dict_positions[db_obj.db_param.NUMBER_POSITION].append(number_position)
                         dict_positions[db_obj.db_param.STATUS_POSITION].append(0)
                         dict_positions[db_obj.db_param.PRICE_ENERGY].append(price)
                         dict_positions[db_obj.db_param.QUALITY_ENERGY].append(quality)
@@ -1398,9 +1410,12 @@ class Prosumer:
                 df_bids_temp = pd.DataFrame(dict_positions).reset_index(drop=True)
                 list_df_bids.append(df_bids_temp)
         df_bids = pd.concat(list_df_bids, axis=0)
-        print(df_bids.info(verbose=True))
-            # db_obj.post_positions(df_bids,
-            #                       t_override=self.t_now)
+        df_bids = df_bids.reset_index(drop=True)
+        # global global_count
+        # global_count += 1
+        # df_bids.to_csv(f'{global_count}_bids.csv')
+        db_obj.post_positions(df_bids,
+                              t_override=self.t_now)
 
     def market_agent(self, db_obj, clear_positions=False):
         """Calculate and post/update market positions to the double sided market.

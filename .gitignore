@@ -133,3 +133,9 @@ lem_analysis/monte_carlo/simulations/
 lem_analysis/
 
 scripts_case_study_1/
+
+code_examples/10_mpc_table.csv
+
+example_data/
+
+*.csv

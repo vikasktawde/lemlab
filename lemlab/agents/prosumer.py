@@ -13,6 +13,7 @@ from random import random
 import lemlab.forecasting.forecasting as fcast
 import warnings
 
+global_count_0 = 0
 global_count = 0
 
 class Prosumer:
@@ -161,6 +162,9 @@ class Prosumer:
         if controller == "mpc":
             # grid power is merely the sum of pv and the fixedgen consumers. The battery remains unused.
             df_target_grid_power = ft.read_dataframe(f"{self.path}/target_grid_power.ft")
+            # global global_count
+            # global_count += 1
+            # df_target_grid_power.to_csv(f'{global_count}_df_target_grid_power_pre.csv')
             df_target_grid_power.set_index("timestamp", inplace=True)
             df_target_grid_power = df_target_grid_power.loc[self.ts_delivery_prev]
             # non-default controllers common model parameters initialized here.
@@ -230,7 +234,6 @@ class Prosumer:
                     model.con_bat_dev.add(expr=model.p_bat_out[bat] - model.p_bat_in[bat]
                                           == df_target_grid_power[f"power_{bat}"]
                                           - (model.deviation_bat_plus[bat] - model.deviation_bat_minus[bat]))
-
                 def bat_soc_rule_1(_model, _bat):
                     return (dict_soc_old[_bat] - 0.25 * _model.p_bat_out[_bat] / _model.n_bat[_bat]
                             + 0.25 * _model.p_bat_in[_bat] * _model.n_bat[_bat] <= self.plant_dict[_bat].get("capacity"))
@@ -1295,6 +1298,9 @@ class Prosumer:
             df_target_grid_power[f"power_{self.config_dict['id_meter_grid']}"] =\
                 self.matched_bids_by_timestep["net_bids"] * 4
 
+            # global global_count_0
+            # global_count_0 += 1
+            # df_target_grid_power.to_csv(f'{global_count_0}_df_target_grid_power_post.csv')
         ft.write_dataframe(df_target_grid_power.reset_index(),
                            f"{self.path}/target_grid_power.ft")
 

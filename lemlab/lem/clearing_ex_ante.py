@@ -906,9 +906,9 @@ def market_clearing(db_obj,
                         positions_cleared = calc_market_position_shares(db_obj, config_lem,
                                                                         offers_ts_d, bids_ts_d, positions_cleared)
                     results_clearing = pd.concat([results_clearing, positions_cleared], ignore_index=True)
-        global global_count_0
-        global_count_0 += 1
-        results_clearing.to_csv(f'{global_count_0}_pre_results.csv')
+        # global global_count_0
+        # global_count_0 += 1
+        # results_clearing.to_csv(f'{global_count_0}_pre_results.csv')
 
         df_dict_bid = dict(results_clearing.groupby(['id_user_bid', 'number_position_bid']).size().sort_values().
                            groupby(level=0).tail(1).reset_index().set_index('id_user_bid')['number_position_bid'])
@@ -981,9 +981,9 @@ def market_clearing(db_obj,
                                                                         offers_ts_d, bids_ts_d, positions_cleared)
                     results_clearing = pd.concat([results_clearing, positions_cleared], ignore_index=True)
 
-        global global_count_1
-        global_count_1 += 1
-        results_clearing.to_csv(f'{global_count_1}_post_results.csv')
+        # global global_count_1
+        # global_count_1 += 1
+        # results_clearing.to_csv(f'{global_count_1}_post_results.csv')
         t_clearing_end = round(time.time())
         if verbose:
             iterations.set_description('Post-processing: ', pd.Timestamp(t_clearing_end, unit="s",

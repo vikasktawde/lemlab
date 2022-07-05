@@ -153,7 +153,7 @@ prosumer:
 
   ################################ general settings ################################
 
-  "general_number_of": 20                   # number of prosumers (single family homes) to simulate
+  "general_number_of": 5                   # number of prosumers (single family homes) to simulate
 
   "general_solver": "gurobi"                # installed pyomo compatible solver
                                             # preferably miqp capable, e.g. "gurobi" and "cplex"
@@ -219,7 +219,7 @@ prosumer:
 
   "pv_fraction": 0.7                        # fraction of prosumers with pv plants
 
-  "pv_sizing_power": 1.5                    # sizing of pv plant
+  "pv_sizing_power": 1000                    # sizing of pv plant
                                             # 1 = 1000 wp of pv for every 1000 kwh/a of household consumption
 
   "pv_sizing_power_deviation": 0.2          # random positive/negative deviation from pv_sizing_power

@@ -160,7 +160,7 @@ class Prosumer:
     def add_c_fixedgen_rtc(self, rtc_model):
         # fixedgen decision variables
         rtc_model.p_fixedgen = pyo.Var(self._get_list_plants(plant_type="fixedgen"),
-                                   domain=pyo.NonNegativeReals)
+                                       domain=pyo.NonNegativeReals)
 
         def fixedgen_rule(_model, _plant):
             p_max = ft.read_dataframe(f"{self.path}/raw_data_{_plant}.ft").set_index("timestamp")
@@ -863,7 +863,9 @@ class Prosumer:
                 dict_mpc_table[f"power_{self.config_dict['id_meter_grid']}"][t_d] = p_load[i]
             # Save results to file, which will be used as basis for controller_real_time set points and market trading
             self.mpc_table = pd.DataFrame.from_dict(dict_mpc_table)
-
+        global global_count_0
+        global_count_0 += 1
+        self.mpc_table.to_csv(f'{global_count_0}_mpc_table_{self.config_dict["id_meter_grid"]}.csv')
         ft.write_dataframe(self.mpc_table.reset_index().rename(columns={"index": "timestamp"}),
                            f"{self.path}/controller_mpc.ft")
 
@@ -1029,7 +1031,9 @@ class Prosumer:
 
         df_potential_bids.rename(columns={f"power_{self.config_dict['id_meter_grid']}": "net_bids"}, inplace=True)
         df_potential_bids["net_bids"] = df_potential_bids["net_bids"] - self.matched_bids_by_timestep["net_bids"]
-
+        # global global_count
+        # global_count += 1
+        # self.matched_bids_by_timestep.to_csv(f'{global_count}_matched_bids_{self.config_dict["id_meter_grid"]}.csv')
         dict_pot_bids = df_potential_bids.to_dict()
         index_pot_bids = sorted(list(dict_pot_bids["net_bids"]))
 

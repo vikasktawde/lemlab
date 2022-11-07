@@ -14,7 +14,7 @@ simulation:
   # sim only
   "sim_start": "2021-03-24 00:00"           # simulation start as unix timestamp
   "sim_start_tz": "europe/berlin"           # timezone of simulation
-  "sim_length": 1                           # length of the simulation in days
+  "sim_length": 3                           # length of the simulation in days
 
   "path_input_data": "../input_data"        # path relative to the lemlab repository
   "path_scenarios": "../scenarios"          # path relative to the lemlab repository
@@ -174,7 +174,7 @@ prosumer:
                                             # Note: any prosumer without any controllable plants will default to a
                                             #       rule-based controller
 
-  "mpc_horizon": 96                         # mpc horizon : 1 - ~180 -> how many delivery period into the future are to be considered
+  "mpc_horizon": 180                        # mpc horizon : 1 - ~180 -> how many delivery period into the future are to be considered
 
   "mpc_price_fcast": "flat"                 # forecast model to be used for the lem market price
                                             #     "flat" - no meaningful forecasting, flat price curve
@@ -207,9 +207,9 @@ prosumer:
   "hh_sizing_uniform": 3500                 # uniform power consumption for all households +-500
                                             # (hh_load_type = "uniform")
 
-  "hh_sizing_distribution": [0.1, 0.2,      # distribution of the total power consumption of the households.
-                             0.2, 0.2,      # values need not sum to 1
-                             0.2, 0.1]
+  "hh_sizing_distribution": [0.1, 0.1,      # distribution of the total power consumption of the households.
+                             0.1, 0.3,      # values need not sum to 1
+                             0.3, 0.1]
 
   "hh_sizing_distribution_intervals": [1000, 2000, 3000, 4000, 5000]
                                             # intervals that the distribution is applied to. all values
@@ -245,12 +245,12 @@ prosumer:
 
   ################################ small-scale photovoltaic settings ####################################
 
-  "pv_fraction": 0.7                          # fraction of prosumers with pv plants
+  "pv_fraction": 0.5                          # fraction of prosumers with pv plants
 
   "pv_sizing_power": 1.5                    # sizing of pv plant
                                             # 1 = 1000 wp of pv for every 1000 kwh/a of household consumption
 
-  "pv_sizing_power_deviation": 0.2          # random positive/negative deviation from pv_sizing_power
+  "pv_sizing_power_deviation": 0            # random positive/negative deviation from pv_sizing_power
 
   "pv_controllable": true                   # can the pv inverter be controlled? true or false
 
@@ -297,7 +297,7 @@ prosumer:
 
   ################################ battery settings ####################################
 
-  "bat_fraction": 0.4                       # fraction of prosumers with batteries
+  "bat_fraction": 0.5                       # fraction of prosumers with batteries
 
   "bat_fraction_dependent_on_pv": true      # True: bat_fraction is only applied to pv owners
                                             # False: any prosumer may own a battery
@@ -313,7 +313,7 @@ prosumer:
 
   "bat_efficiency": 0.95                    # one way charging efficiency of the battery
 
-  "bat_soc_init": 0.1                       # initial soc of the battery (0-1)
+  "bat_soc_init": 0.2                       # initial soc of the battery (0-1)
 
   "bat_charge_from_grid": false             # can the battery charge off the grid?
 
@@ -424,7 +424,7 @@ prosumer:
 
   ################################ fixed generator settings ####################################
 
-  "fixedgen_fraction": 0.05                 # fraction of prosumers with constant power generators
+  "fixedgen_fraction": 0                 # fraction of prosumers with constant power generators
                                             # (p.u. power read from file)
 
   "fixedgen_power": 5000                    # peak power of constant power generator
@@ -443,7 +443,7 @@ prosumer:
                                             #          trading is possible
                                             # each prosumer selects a random value off this list
 
-  "ma_horizon": [16, 32, 48, 64, 80, 95]    # market agent trading horizon,
+  "ma_horizon": [95]                        # market agent trading horizon,
                                             #     possible range : 1 - (mpc_horizon - reopt_step)
                                             # each prosumer selects a random value off this list
 

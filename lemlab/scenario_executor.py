@@ -714,7 +714,7 @@ class ScenarioExecutor:
         # generate input list for parallel processing of prosumers
         for i, _ in enumerate(list_paths_prosumers):
             list_par_inputs.append({"path_prosumer": self.path_results + "/prosumer/" + list_paths_prosumers[i],
-                                    "t_now": self.t_now})
+                                    "t_now": self.t_now, "count": self.step_counter})
         return list_par_inputs
 
     # agent-post-clearing activities
@@ -1024,6 +1024,7 @@ def _par_step_prosumers_pre(list_info_prosumers):
     prosumer = Prosumer(path=list_info_prosumers["path_prosumer"],
                         t_override=list_info_prosumers["t_now"],
                         df_weather_history=_par_step_prosumers_pre.df_weather_history,
-                        df_weather_fcast=_par_step_prosumers_pre.df_weather_fcast)
+                        df_weather_fcast=_par_step_prosumers_pre.df_weather_fcast,
+                        count=list_info_prosumers["count"])
 
     prosumer.pre_clearing_activity(db_obj=_par_step_prosumers_pre.db_conn)

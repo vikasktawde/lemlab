@@ -136,6 +136,8 @@ class ForecastManager:
                         # retrieve forecast for pv and fixed_gen plants, scale PU forecast by plant power
                         df_temp = self.__update_single_forecast(id_plant=plant)
                         df_temp["power"] *= self.plant_dict[plant].get("power")
+                        if self.plant_dict[plant].get("type") in ["pv"]:
+                            df_temp["power"] *= np.random.uniform(low=0.7, high=1.1, size=(len(df_temp),))
                         # rename column and merge into forecast table
                         df_temp.rename(columns={'power': f'power_{plant}'}, inplace=True)
                         self.fcast_table = self.fcast_table.join(df_temp, how="outer", lsuffix=f"duplicate")

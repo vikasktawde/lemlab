@@ -874,7 +874,8 @@ class ScenarioExecutor:
         list_prosumer_obj = []
         for prosumer in list_prosumers:
             list_prosumer_obj.append(Prosumer(path=f"{self.path_results}/prosumer/{prosumer}",
-                                              t_override=self.t_now))
+                                              t_override=self.t_now,
+                                              count=self.step_counter))
         return list_prosumer_obj
 
     def __get_active_aggregators(self) -> list:

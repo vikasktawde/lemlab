@@ -20,6 +20,9 @@ import traceback
 import random
 import string
 
+df_bid = None
+list_positions_cleared = []
+list_offers_uncleared = []
 
 def market_clearing(db_obj,
                     config_lem,
@@ -121,12 +124,13 @@ def market_clearing(db_obj,
                 # Combinations WITHOUT consideration of quality premium
                 if 'pda' == type_clearing:
                     positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
-                        clearing_pda(db_obj,
+                        clearing_pda_test(db_obj,
                                      config_lem,
                                      offers_ts_d,
                                      bids_ts_d,
                                      plotting=plotting,
-                                     plotting_title=plotting_title)
+                                     plotting_title=plotting_title,
+                                     t_now=t_now, i=i)
 
                 if 'h2l' == type_clearing:
                     positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
@@ -951,7 +955,8 @@ def clearing_pda(db_obj,
                  add_premium=False,
                  plotting=False,
                  plotting_title=None,
-                 plotting_ylim=None):
+                 plotting_ylim=None,
+                 t_now=None, i=None):
     """
     Function clears offers and bids with a double sided auction
     @param db_obj: DatabaseConnection object
@@ -966,6 +971,7 @@ def clearing_pda(db_obj,
     @param plotting_ylim: list of two values to predefine limits of y axis
     @return: returns cleared and uncleared bids and offers in multiple dataframes
     """
+
     offers_uncleared = pd.DataFrame()
     bids_uncleared = pd.DataFrame()
     offers_cleared = pd.DataFrame()
@@ -1022,6 +1028,18 @@ def clearing_pda(db_obj,
         positions_cleared = positions_merged[
             positions_merged[db_obj.db_param.PRICE_ENERGY + db_obj.db_param.EXTENSION_OFFER] <=
             positions_merged[db_obj.db_param.PRICE_ENERGY + db_obj.db_param.EXTENSION_BID]].copy()
+
+        # positions_merged_temp = offers_sorted.merge(bids_sorted, how='cross', left_index=True, right_index=True,
+        #                                             suffixes=[db_obj.db_param.EXTENSION_OFFER,
+        #                                                       db_obj.db_param.EXTENSION_BID])
+
+        if len(positions_cleared) > 3:
+            bids_sorted.to_csv(f'bids_sorted_{t_now}_{i}.csv')
+            offers_sorted.to_csv(f'offers_sorted_{t_now}_{i}.csv')
+            positions_merged.to_csv(f'positions_merged_{t_now}_{i}.csv')
+            # positions_merged_temp.to_csv(f'positions_temp_{t_now}_{i}.csv')
+            positions_cleared.to_csv(f'positions_cleared_{t_now}_{i}.csv')
+
         # Convert floats (occur due to merging with NaN rows) to ints
         for column in positions_cleared.columns:
             if positions_cleared[column].dtype == np.float64:
@@ -1123,8 +1141,235 @@ def clearing_pda(db_obj,
     except Exception:
         traceback.print_exc()
 
+    print(positions_cleared.info(verbose=True))
+    print(offers_uncleared.info(verbose=True))
+    print(bids_uncleared.info(verbose=True))
+    print(offers_cleared.info(verbose=True))
+    print(bids_cleared.info(verbose=True))
+
     return positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared
 
+def _clearing(df, db_obj):
+    dict_offer = df.to_dict()
+
+    global df_bid, list_positions_cleared, list_offers_uncleared
+    df = df_bid
+    df = df.sort_values([db_obj.db_param.PRICE_ENERGY, db_obj.db_param.QTY_ENERGY], ascending=[False, False])
+    df = df[(df[db_obj.db_param.ID_USER] != dict_offer[db_obj.db_param.ID_USER])&
+            (df[db_obj.db_param.PRICE_ENERGY] >= dict_offer[db_obj.db_param.PRICE_ENERGY])]
+    list_df = [df_bid[~df_bid.index.isin(df.index)]]
+    df['qty_energy_cumsum'] = df[db_obj.db_param.QTY_ENERGY].cumsum()
+    df['qty_energy_cumsum_shift'] = df[db_obj.db_param.QTY_ENERGY].cumsum().shift(1).fillna(0)
+
+    df_1 = df[df['qty_energy_cumsum_shift'] <= dict_offer[db_obj.db_param.QTY_ENERGY]]
+    df_2 = df[df['qty_energy_cumsum'] > dict_offer[db_obj.db_param.QTY_ENERGY]]
+    df_offer = pd.DataFrame.from_dict(dict_offer, orient='index').T
+
+    if not df_1.empty:
+        df_1.iloc[-1, df_1.columns.get_loc(db_obj.db_param.QTY_ENERGY)] -=\
+            df_1.iloc[-1,df_1.columns.get_loc('qty_energy_cumsum')] - dict_offer[db_obj.db_param.QTY_ENERGY]
+        df_1.set_index(df_1[db_obj.db_param.QTY_ENERGY].cumsum(), inplace=True)
+        df_offer.set_index(df_offer[db_obj.db_param.QTY_ENERGY].cumsum(), inplace=True)
+
+        df_1 = df_1.drop(columns={'qty_energy_cumsum', 'qty_energy_cumsum_shift'})
+        list_positions_cleared.append(df_offer.merge(df_1, how='outer', left_index=True, right_index=True,
+                                               indicator=False, suffixes=[db_obj.db_param.EXTENSION_OFFER,
+                                                                          db_obj.db_param.EXTENSION_BID]).fillna(
+            method='backfill').reset_index(drop=True))
+    else:
+        list_offers_uncleared.append(df_offer)
+
+    if not df_2.empty:
+        df_2.iloc[0, df_2.columns.get_loc(db_obj.db_param.QTY_ENERGY)] =\
+            df_2.iloc[0, df_2.columns.get_loc('qty_energy_cumsum')] - dict_offer[db_obj.db_param.QTY_ENERGY]
+        df_2 = df_2.drop(columns={'qty_energy_cumsum', 'qty_energy_cumsum_shift'})
+        list_df.append(df_2)
+        df_bid = pd.concat(list_df).reset_index(drop=True)
+    else:
+        df_bid = pd.concat(list_df).reset_index(drop=True)
+
+def clearing_pda_test(db_obj,
+                 config_lem,
+                 offers,
+                 bids,
+                 type_clearing=None,
+                 shuffle=True,
+                 add_premium=False,
+                 plotting=False,
+                 plotting_title=None,
+                 plotting_ylim=None,
+                 t_now=None, i=None):
+    """
+    Function clears offers and bids with a double sided auction
+    @param db_obj: DatabaseConnection object
+    @param config_lem: configuration dictionary for clearing
+    @param offers: dataframe of various offers consisting of price, quantity, quality, ts_delivery, id and type
+    @param bids: dataframe of various bids consisting of price, quantity, quality, ts_delivery, id and type
+    @param type_clearing: clearing type that is using clearing da functionality
+    @param shuffle: boolean value to shuffle bids and offers before clearing for fairness
+    @param add_premium: boolean value to add premium to bid prices
+    @param plotting: boolean value to plot clearing results
+    @param plotting_title: title of plot, ignored if plotting is false
+    @param plotting_ylim: list of two values to predefine limits of y axis
+    @return: returns cleared and uncleared bids and offers in multiple dataframes
+    """
+
+    offers_uncleared = pd.DataFrame()
+    bids_uncleared = pd.DataFrame()
+    offers_cleared = pd.DataFrame()
+    bids_cleared = pd.DataFrame()
+    positions_cleared = pd.DataFrame()
+    qty_energy_cleared = 0
+    # Check whether bids or offers are empty
+    if bids.empty or offers.empty or \
+            bids[bids[db_obj.db_param.QTY_ENERGY] > 0].empty or \
+            offers[offers[db_obj.db_param.QTY_ENERGY] > 0].empty:
+        offers_uncleared = offers
+        bids_uncleared = bids
+        return positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared
+    if type_clearing is None:
+        type_clearing = 'da'
+    # Exclude bids/offers if they have zero quantity
+    bids = bids[bids[db_obj.db_param.QTY_ENERGY] > 0]
+    offers = offers[offers[db_obj.db_param.QTY_ENERGY] > 0]
+    # Aggregate equal positions
+    bids = _aggregate_identical_positions(db_obj=db_obj,
+                                          positions=bids,
+                                          subset=[db_obj.db_param.PRICE_ENERGY, db_obj.db_param.QUALITY_ENERGY,
+                                                  db_obj.db_param.ID_USER])
+    offers = _aggregate_identical_positions(db_obj=db_obj,
+                                            positions=offers,
+                                            subset=[db_obj.db_param.PRICE_ENERGY, db_obj.db_param.QUALITY_ENERGY,
+                                                    db_obj.db_param.ID_USER])
+    if add_premium:
+        bids[db_obj.db_param.PRICE_ENERGY] += (bids[db_obj.db_param.PRICE_ENERGY] *
+                                               bids[db_obj.db_param.PREMIUM_PREFERENCE_QUALITY] / 100).astype(int)
+    if shuffle:
+        # Shuffle all bids and offers, so that submission speed does not matter
+        bids = bids.sample(frac=1).reset_index(drop=True)
+        offers = offers.sample(frac=1).reset_index(drop=True)
+    try:
+        # Sort values first by price and quality
+        df_bids = bids[bids[db_obj.db_param.PRICE_ENERGY] >= offers[db_obj.db_param.PRICE_ENERGY].min()].copy()
+        df_offers = offers[offers[db_obj.db_param.PRICE_ENERGY] <= bids[db_obj.db_param.PRICE_ENERGY].max()].copy()
+        list_df_bids = [bids[~bids.index.isin(df_bids.index)]]
+
+        offers_sorted = df_offers.sort_values(by=[db_obj.db_param.PRICE_ENERGY, db_obj.db_param.QUALITY_ENERGY],
+                                           ascending=[True, False],
+                                           ignore_index=True)
+        bids_sorted = df_bids.sort_values(by=[db_obj.db_param.PRICE_ENERGY, db_obj.db_param.QUALITY_ENERGY],
+                                       ascending=[False, False],
+                                       ignore_index=True)
+
+        global df_bid, list_positions_cleared, list_offers_uncleared
+        list_offers_uncleared = [offers[~offers.index.isin(df_offers.index)]]
+        df_bid = bids_sorted.copy()
+
+        # clearing algorith
+        offers_sorted.apply(lambda x: _clearing(df=x, db_obj=db_obj), axis=1)
+        positions_cleared = pd.concat(list_positions_cleared).reset_index(drop=True)
+
+        if len(list_offers_uncleared):
+            offers_uncleared = pd.concat(list_offers_uncleared).reset_index(drop=True)
+
+        list_df_bids.append(df_bid)
+        if len(list_df_bids):
+            bids_uncleared = pd.concat(list_df_bids).reset_index(drop=True)
+        # if not bids_uncleared.empty:
+        #     bids_uncleared = bids_uncleared.drop(columns={'qty_energy_cumsum', 'qty_energy_cumsum_shift'})
+        # if not positions_cleared.empty:
+        #     print('positions before')
+        #     print(positions_cleared)
+        #     positions_cleared = positions_cleared.drop(columns={'qty_energy_cumsum', 'qty_energy_cumsum_shift'})
+        #     print('positions after')
+        #     print(positions_cleared)
+
+        # Convert floats (occur due to merging with NaN rows) to ints
+        for column in positions_cleared.columns:
+            if positions_cleared[column].dtype == np.float64:
+                positions_cleared[column] = positions_cleared[column].astype(int)
+        # Check whether cleared quantities are empty
+        if not positions_cleared.empty:
+            for i in range(len(config_lem['types_pricing_ex_ante'])):
+                type_pricing = config_lem['types_pricing_ex_ante'][i]
+                # Calculate uniform prices if demanded
+                if 'uniform' == config_lem['types_pricing_ex_ante'][i]:
+                    positions_cleared.loc[:, db_obj.db_param.PRICE_ENERGY_MARKET_ + type_pricing] = \
+                        ((positions_cleared[db_obj.db_param.PRICE_ENERGY_OFFER].iloc[-1] +
+                          positions_cleared[db_obj.db_param.PRICE_ENERGY_BID].iloc[-1]) / 2).astype(int)
+
+                # Calculate discriminative prices if demanded
+                if 'discriminatory' == config_lem['types_pricing_ex_ante'][i]:
+                    positions_cleared.loc[:, db_obj.db_param.PRICE_ENERGY_MARKET_ + type_pricing] = \
+                        ((positions_cleared[db_obj.db_param.PRICE_ENERGY_OFFER] +
+                          positions_cleared[db_obj.db_param.PRICE_ENERGY_BID].iloc[:]) / 2).astype(int)
+            # Calculate traded energy quantities
+            positions_cleared[db_obj.db_param.QTY_ENERGY_TRADED] = positions_cleared[
+                [db_obj.db_param.QTY_ENERGY + db_obj.db_param.EXTENSION_OFFER,
+                 db_obj.db_param.QTY_ENERGY + db_obj.db_param.EXTENSION_BID]].min(
+                axis=1)
+            # Assign traded quantities to bid and offer quantities
+            positions_cleared[db_obj.db_param.QTY_ENERGY + db_obj.db_param.EXTENSION_OFFER] =\
+                positions_cleared[db_obj.db_param.QTY_ENERGY_TRADED]
+            positions_cleared[db_obj.db_param.QTY_ENERGY + db_obj.db_param.EXTENSION_BID] =\
+                positions_cleared[db_obj.db_param.QTY_ENERGY_TRADED]
+            # Cleared energy quantity is equal to sum of cleared energy quantities
+            qty_energy_cleared = positions_cleared[db_obj.db_param.QTY_ENERGY_TRADED].sum()
+            # Extract cleared bids and offers
+            offers_cleared = _extract_positions_by_extension(db_obj=db_obj,
+                                                             positions_merged=positions_cleared,
+                                                             extension=db_obj.db_param.EXTENSION_OFFER)
+            bids_cleared = _extract_positions_by_extension(db_obj=db_obj,
+                                                           positions_merged=positions_cleared,
+                                                           extension=db_obj.db_param.EXTENSION_BID)
+
+            # Calculate shares of labelled energy of cleared positions
+            for i in config_lem['types_quality']:
+                type_quality = config_lem['types_quality'][i]
+                # Shares of offers in cleared positions
+                positions_cleared_quality_offer = positions_cleared.loc[
+                    positions_cleared[db_obj.db_param.QUALITY_ENERGY_OFFER] == i]
+                qty_energy_cleared_quality_offer = positions_cleared_quality_offer[
+                    db_obj.db_param.QTY_ENERGY_TRADED].sum()
+                positions_cleared = positions_cleared.assign(
+                    **{db_obj.db_param.SHARE_QUALITY_OFFERS_CLEARED_ + type_quality: round(
+                        qty_energy_cleared_quality_offer / qty_energy_cleared * 100)})
+                if config_lem['share_quality_logging_extended']:
+                    # Shares of preferences in cleared positions
+                    positions_cleared_preference_bid = positions_cleared.loc[
+                        positions_cleared[db_obj.db_param.QUALITY_ENERGY_BID] == i]
+                    qty_energy_cleared_preference_bid = positions_cleared_preference_bid[
+                        db_obj.db_param.QTY_ENERGY_TRADED].sum()
+                    positions_cleared = positions_cleared.assign(
+                        **{db_obj.db_param.SHARE_PREFERENCE_BIDS_CLEARED_ + type_quality: round(
+                            qty_energy_cleared_preference_bid / qty_energy_cleared * 100)})
+
+        # Drop duplicate ts_delivery column
+        positions_cleared = positions_cleared.rename(columns={'ts_delivery_offer': 'ts_delivery'})
+        positions_cleared = positions_cleared.drop(columns={'ts_delivery_bid'})
+
+        if plotting:
+            if plotting_title is None:
+                plotting_title = f'Clearing: standard'
+            else:
+                plotting_title = f'{plotting_title}'
+            # Plot results
+            plot_clearing_results(db_obj=db_obj,
+                                  offers=offers_sorted, bids=bids_sorted, positions_cleared=positions_cleared,
+                                  show=True, types_pricing=config_lem['types_pricing_ex_ante'],
+                                  plotting_title=plotting_title,
+                                  y_lim=plotting_ylim)
+
+    except Exception:
+        traceback.print_exc()
+
+    # print('positions************')
+    # print(positions_cleared)
+    # print(offers_uncleared)
+    # print(bids_uncleared)
+    # print(offers_cleared)
+    # print(bids_cleared)
+    return positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared
 
 def clearing_cc(db_obj,
                 config_lem,

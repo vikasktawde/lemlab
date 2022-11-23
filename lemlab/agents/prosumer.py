@@ -91,6 +91,7 @@ class Prosumer:
         # df containing net matched market volumes by timestep (multiple matched offers for each timestamp summated)
         self.matched_bids_by_timestep = None
         self.count = count
+        self.base_quantiles = None
 
     def pre_clearing_activity(self, db_obj, clear_positions=False):
         self.update_user_preferences(db_obj)
@@ -792,6 +793,9 @@ class Prosumer:
                                          tz='europe/berlin').timestamp()
         timesteps = range(int(self.ts_delivery_current),
                           int(self.ts_delivery_current + 900 * self.config_dict["mpc_horizon"]), 900)
+        user_risk_qtl_num = 2
+        self.base_quantiles = np.zeros(9)
+        self.base_quantiles[:user_risk_qtl_num] = 1
 
         # forecast table section
         self.fcast_table = ft.read_dataframe(f"{self.path}/fcasts_current.ft").set_index("timestamp")
@@ -806,11 +810,10 @@ class Prosumer:
         self.fcast_table[f"power_{self.config_dict['id_meter_grid']}"] = 0
         self.fcast_table[f"power_in_{self.config_dict['id_meter_grid']}"] = 0
         self.fcast_table[f"power_out_{self.config_dict['id_meter_grid']}"] = 0
-        list_pv = np.array([1, 0, 0, 0, 0, 0, 0, 0, 0])
-        self.fcast_table['quantile_number'] = int(list_pv.sum())
+        self.fcast_table['quantile_number'] = int(self.base_quantiles.sum())
         self.fcast_table[f'base_power_{self._get_list_plants(plant_type=["pv"])[0]}'] = \
             self.fcast_table.apply(lambda x: list(np.array(self.pv_gen(x=x))), axis=1)
-        array_price_quantiles = (1-probability)*(~list_pv+2)
+        array_price_quantiles = (1-probability)*(1-self.base_quantiles)
         self.fcast_table['price_quantiles'] = np.tile(np.round(array_price_quantiles, 3),
                                                       (len(self.fcast_table), 1)).tolist()
         self.fcast_table['balancing_price'] = float(0.10)
@@ -824,7 +827,8 @@ class Prosumer:
         self.fcast_table.index = self.fcast_table.index.astype(dtype='int64')
         list_col = [f"power_{self.config_dict['id_meter_grid']}_quantiles",
                     f"power_{self.config_dict['id_meter_grid']}", 'price', 'quantile_number', 'matched_bid_pos',
-                    f'power_{self._get_list_plants(plant_type="hh")[0]}_quantiles']
+                    f'power_{self._get_list_plants(plant_type="hh")[0]}_quantiles',
+                    f'power_{self._get_list_plants(plant_type=["pv"])[0]}_quantiles']
 
         # read mpc table
         if not os.path.isfile(f"{self.path}/controller_mpc.ft"):
@@ -897,17 +901,30 @@ class Prosumer:
         self.mpc_table[f'power_{self._get_list_plants(plant_type=["pv"])[0]}'] = self.mpc_table.apply(
             lambda x: list(np.array(self.pv_gen(x=x))), axis=1)
 
+        ft.write_dataframe(self.mpc_table.reset_index(),
+                           os.path.join(self.path_out, f'mpc_{self.count}.ft'))
+
         # quantile shifting algorithm
         if int(ts_delivery_start + 900) < self.ts_delivery_current:
 
             # price adaptation
             temp_array = (self.mpc_table["matched_bid_pos_update"] /
                           self.mpc_table["matched_bid_pos_update"].sum()).to_numpy()
-            self.mpc_table["state_grid_pos"] = np.where(self.mpc_table["state_grid"] > 0, self.mpc_table["state_grid"],
-                                                         0)
-            self.mpc_table["price"] = np.where(temp_array > 0, self.mpc_table["price"] + (
-                    float(0.00001) * self.mpc_table["matched_bid_pos_update"]), self.mpc_table["price"] - float(
-                0.000001) * self.mpc_table["state_grid_pos"])
+            # self.mpc_table["state_grid_pos"] = np.where(self.mpc_table["state_grid"] > 0, self.mpc_table["state_grid"],
+            #                                              0)
+            # self.mpc_table["price"] = np.where(temp_array > 0, self.mpc_table["price"] + (
+            #         float(0.00001) * self.mpc_table["matched_bid_pos_update"]), self.mpc_table["price"] - float(
+            #     0.000001) * self.mpc_table["state_grid_pos"])
+
+            self.mpc_table["state_grid_pos"] = self.mpc_table.apply(lambda x: np.array(
+                np.array(x['matched_bid_pos_quantile'], dtype=float) - np.array(x['power_d9cs7533vi_pos_quantiles'],
+                                                                                dtype=float)).clip(min=0).sum(), axis=1)
+
+            self.mpc_table["price"] = np.where(
+                self.mpc_table["state_grid_pos"] > 0,
+                self.mpc_table["price"] - float(0.000001) * self.mpc_table["state_grid_pos"],
+                self.mpc_table["price"] + (float(0.00001) * self.mpc_table["matched_bid_pos_update"]))
+
 
             # quantile shift
             df_mpc = self.mpc_table[self.mpc_table.index.isin(timesteps)]
@@ -1053,9 +1070,10 @@ class Prosumer:
 
         # Define objective function
         def objective_function(model):
-            cost = sum((model.balancing_grid_neg[t] + model.deviation_grid_pos[t] +
-                        model.deviation_grid_neg[t]) * dict_price_norm[t] for t in model.t)
-            # cost = sum(model.power_grid_in[t] - model.power_grid_out[t] for t in model.t)
+            # cost = sum((model.balancing_grid_neg[t] + model.deviation_grid_pos[t] +
+            #             model.deviation_grid_neg[t]) * dict_price_norm[t] for t in model.t)
+            cost = sum(model.balancing_grid_neg[t] + model.deviation_grid_pos[t] +
+                       model.deviation_grid_neg[t] for t in model.t)
             objective_expression = cost
             return objective_expression
 
@@ -1088,10 +1106,10 @@ class Prosumer:
                           int(self.ts_delivery_current + 900 * self.config_dict["mpc_horizon"]), 900)
 
         df_potential_bids = pd.DataFrame(self.mpc_table[self.mpc_table.index.isin(timesteps)])
-        ft.write_dataframe(df_potential_bids.reset_index(),
-                           os.path.join(self.path_out, f'controller_mpc_{self.count}.ft'))
+        # ft.write_dataframe(df_potential_bids.reset_index(),
+        #                    os.path.join(self.path_out, f'controller_mpc_{self.count}.ft'))
         global list_soc
-        list_soc = np.array([1, 0, 0, 0, 0, 0, 0, 0, 0])
+        list_soc = self.base_quantiles
         # previous ts soc
         for bat in self._get_list_plants(plant_type="bat"):
             with open(f"{self.path}/soc_{bat}.json", "r") as read_file:
@@ -1195,7 +1213,7 @@ class Prosumer:
         global list_soc
         list_soc = np.where(list_soc > 0, list_soc, 0)
         if x[f'power_{self._get_list_plants(plant_type="bat")[0]}'] <= 0:
-            array_pos_bid_quantile = x['matched_bid_pos_quantile'] * np.array([0, 1, 1, 1, 1, 1, 1, 1, 1])
+            array_pos_bid_quantile = x['matched_bid_pos_quantile'] * (1-self.base_quantiles)
             array_pos_bid_rem = np.subtract(array_pos_bid_quantile,
                                             x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}']).clip(min=0)
             array_pos_bid = array_pos_bid_quantile - array_pos_bid_rem
@@ -1208,7 +1226,7 @@ class Prosumer:
             array_bat_sub = np.subtract(array_pv_rem_quantile, array_add)
             array_bat_sub[:length - 1] = 0
             array_pv_rem = np.subtract(x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}'], array_bat_sub)
-            array_pv_rem_base = array_pv_rem * np.array([1, 0, 0, 0, 0, 0, 0, 0, 0])
+            array_pv_rem_base = array_pv_rem * self.base_quantiles
             array_sub = np.subtract(np.cumsum(array_pv_rem_base), x[f"power_in_{self.config_dict['id_meter_grid']}"])
             length = len(array_sub[array_sub < 0])
             array_sub[:length] = 0
@@ -1219,14 +1237,14 @@ class Prosumer:
             array_bat_sub *= -1
             array_bat = np.array(array_bat_sub).round(2)
             array_grid_in = np.add((x[f"power_in_{self.config_dict['id_meter_grid']}"] -
-                                    np.sum(array_sub_rem_base)) * np.array([1, 0, 0, 0, 0, 0, 0, 0, 0]),
+                                    np.sum(array_sub_rem_base)) * self.base_quantiles,
                                    array_sub_rem_base).round(2)
             array_hh_base = np.array(array_sub_rem_base).round(2)
             array_grid_meter = np.subtract(array_pv_rem, array_grid_in).round(2)
             array_pv_out = np.subtract(array_pv_rem, array_sub_rem_base).round(2)
 
         else:
-            array_pos_bid_quantile = x['matched_bid_pos_quantile'] * np.array([0, 1, 1, 1, 1, 1, 1, 1, 1])
+            array_pos_bid_quantile = x['matched_bid_pos_quantile'] * (1-self.base_quantiles)
             array_pos_bid_rem = np.subtract(array_pos_bid_quantile,
                                             x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}']).clip(min=0)
             array_pos_bid = array_pos_bid_quantile - array_pos_bid_rem
@@ -1246,7 +1264,7 @@ class Prosumer:
 
             bat_rem = x[f'power_{self._get_list_plants(plant_type="bat")[0]}'] - np.sum(array_bat_quantile)
 
-            array_pv_base = array_pv_rem_quantile * np.array([1, 0, 0, 0, 0, 0, 0, 0, 0])
+            array_pv_base = array_pv_rem_quantile * self.base_quantiles
             array_sub = np.subtract(np.cumsum(array_pv_base), x[f"power_in_{self.config_dict['id_meter_grid']}"])
             length = len(array_sub[array_sub < 0])
             array_sub[:length] = 0
@@ -1255,7 +1273,7 @@ class Prosumer:
             array_sub_pv_base[length + 1:] = 0
             grid_in_rem = x[f"power_in_{self.config_dict['id_meter_grid']}"] - np.sum(array_sub_pv_base)
 
-            list_soc_base = list_soc * np.array([1, 0, 0, 0, 0, 0, 0, 0, 0])
+            list_soc_base = list_soc * self.base_quantiles
             if grid_in_rem < bat_rem:
                 array_soc_sub = np.subtract(np.cumsum(list_soc_base[::-1])[::-1], grid_in_rem * 0.25)
             else:
@@ -1280,7 +1298,7 @@ class Prosumer:
             list_soc = np.subtract(list_soc, array_bat_sub).round(2)
             array_bat_sub *= 4
             array_bat = np.array(array_grid_in_sub * 4 + array_bat_sub + array_bat_quantile).round(2)
-            array_grid_in = np.array(grid_in_rem * np.array([1, 0, 0, 0, 0, 0, 0, 0, 0]) +
+            array_grid_in = np.array(grid_in_rem * self.base_quantiles +
                                      array_grid_in_sub * 4 + array_sub_pv_base).round(2)
             array_hh_base = np.array(array_grid_in_sub * 4 + array_sub_pv_base).round(2)
 

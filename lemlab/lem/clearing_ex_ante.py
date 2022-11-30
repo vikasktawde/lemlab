@@ -899,6 +899,7 @@ def market_clearing(db_obj,
 
                 # Check whether market has cleared a volume
                 if not positions_cleared.empty:
+                    # positions_cleared.to_csv(f'positions_temp_{t_now}_{i}.csv')
                     if config_lem['share_quality_logging_extended']:
                         positions_cleared = calc_market_position_shares(db_obj, config_lem,
                                                                         offers_ts_d, bids_ts_d, positions_cleared)
@@ -1029,16 +1030,12 @@ def clearing_pda(db_obj,
             positions_merged[db_obj.db_param.PRICE_ENERGY + db_obj.db_param.EXTENSION_OFFER] <=
             positions_merged[db_obj.db_param.PRICE_ENERGY + db_obj.db_param.EXTENSION_BID]].copy()
 
-        # positions_merged_temp = offers_sorted.merge(bids_sorted, how='cross', left_index=True, right_index=True,
-        #                                             suffixes=[db_obj.db_param.EXTENSION_OFFER,
-        #                                                       db_obj.db_param.EXTENSION_BID])
-
-        if len(positions_cleared) > 3:
-            bids_sorted.to_csv(f'bids_sorted_{t_now}_{i}.csv')
-            offers_sorted.to_csv(f'offers_sorted_{t_now}_{i}.csv')
-            positions_merged.to_csv(f'positions_merged_{t_now}_{i}.csv')
-            # positions_merged_temp.to_csv(f'positions_temp_{t_now}_{i}.csv')
-            positions_cleared.to_csv(f'positions_cleared_{t_now}_{i}.csv')
+        # if len(positions_cleared) > 3:
+        #     bids_sorted.to_csv(f'bids_sorted_{t_now}_{i}.csv')
+        #     offers_sorted.to_csv(f'offers_sorted_{t_now}_{i}.csv')
+        #     positions_merged.to_csv(f'positions_merged_{t_now}_{i}.csv')
+        #     # positions_merged_temp.to_csv(f'positions_temp_{t_now}_{i}.csv')
+        #     positions_cleared.to_csv(f'positions_cleared_{t_now}_{i}.csv')
 
         # Convert floats (occur due to merging with NaN rows) to ints
         for column in positions_cleared.columns:
@@ -1140,14 +1137,8 @@ def clearing_pda(db_obj,
 
     except Exception:
         traceback.print_exc()
-
-    print(positions_cleared.info(verbose=True))
-    print(offers_uncleared.info(verbose=True))
-    print(bids_uncleared.info(verbose=True))
-    print(offers_cleared.info(verbose=True))
-    print(bids_cleared.info(verbose=True))
-
     return positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared
+
 
 def _clearing(df, db_obj):
     dict_offer = df.to_dict()
@@ -1187,6 +1178,7 @@ def _clearing(df, db_obj):
         df_bid = pd.concat(list_df).reset_index(drop=True)
     else:
         df_bid = pd.concat(list_df).reset_index(drop=True)
+
 
 def clearing_pda_test(db_obj,
                  config_lem,
@@ -1236,11 +1228,11 @@ def clearing_pda_test(db_obj,
     bids = _aggregate_identical_positions(db_obj=db_obj,
                                           positions=bids,
                                           subset=[db_obj.db_param.PRICE_ENERGY, db_obj.db_param.QUALITY_ENERGY,
-                                                  db_obj.db_param.ID_USER])
+                                                  db_obj.db_param.ID_USER, db_obj.db_param.NUMBER_POSITION])
     offers = _aggregate_identical_positions(db_obj=db_obj,
                                             positions=offers,
                                             subset=[db_obj.db_param.PRICE_ENERGY, db_obj.db_param.QUALITY_ENERGY,
-                                                    db_obj.db_param.ID_USER])
+                                                    db_obj.db_param.ID_USER, db_obj.db_param.NUMBER_POSITION])
     if add_premium:
         bids[db_obj.db_param.PRICE_ENERGY] += (bids[db_obj.db_param.PRICE_ENERGY] *
                                                bids[db_obj.db_param.PREMIUM_PREFERENCE_QUALITY] / 100).astype(int)
@@ -1267,7 +1259,8 @@ def clearing_pda_test(db_obj,
 
         # clearing algorith
         offers_sorted.apply(lambda x: _clearing(df=x, db_obj=db_obj), axis=1)
-        positions_cleared = pd.concat(list_positions_cleared).reset_index(drop=True)
+        if len(list_positions_cleared):
+            positions_cleared = pd.concat(list_positions_cleared).reset_index(drop=True)
 
         if len(list_offers_uncleared):
             offers_uncleared = pd.concat(list_offers_uncleared).reset_index(drop=True)
@@ -1344,9 +1337,14 @@ def clearing_pda_test(db_obj,
                         **{db_obj.db_param.SHARE_PREFERENCE_BIDS_CLEARED_ + type_quality: round(
                             qty_energy_cleared_preference_bid / qty_energy_cleared * 100)})
 
-        # Drop duplicate ts_delivery column
-        positions_cleared = positions_cleared.rename(columns={'ts_delivery_offer': 'ts_delivery'})
-        positions_cleared = positions_cleared.drop(columns={'ts_delivery_bid'})
+        if not positions_cleared.empty:
+            # Drop duplicate ts_delivery column
+            positions_cleared = positions_cleared.rename(columns={'ts_delivery_offer': 'ts_delivery'})
+            positions_cleared = positions_cleared.drop(columns={'ts_delivery_bid'})
+
+        df_bid = None
+        list_positions_cleared = []
+        list_offers_uncleared = []
 
         if plotting:
             if plotting_title is None:

@@ -924,8 +924,8 @@ class Prosumer:
 
             self.mpc_table["price"] = np.where(
                 self.mpc_table["state_grid_pos"] > 0,
-                self.mpc_table["price"] - float(0.000001) * self.mpc_table["state_grid_pos"],
-                self.mpc_table["price"] + (float(0.00001) * self.mpc_table["matched_bid_pos_update"]))
+                self.mpc_table["price"] - float(0.0000001) * self.mpc_table["state_grid_pos"],
+                self.mpc_table["price"] + (float(0.000001) * self.mpc_table["matched_bid_pos_update"]))
 
 
             # quantile shift
@@ -1132,17 +1132,19 @@ class Prosumer:
         ft.write_dataframe(df_potential_bids.reset_index(), f"{self.path}/controller_mpc.ft")
         df_potential_bids.to_csv(os.path.join(self.path_out, f'mpc_after_{self.count}.csv'))
 
+        df_potential_bids['price_linear_desc'] = np.linspace(start=0.1, stop=0.01, num=len(df_potential_bids))
         df_potential_bids = df_potential_bids.explode([f"power_{self.config_dict['id_meter_grid']}_quantiles",
                                                        'price_quantiles', 'position_number'])
         df_potential_bids = pd.DataFrame(
             df_potential_bids[[f"power_{self.config_dict['id_meter_grid']}_quantiles",
-                               'price_quantiles', 'position_number']])
+                               'price_quantiles', 'position_number', 'price_linear_desc']])
         df_potential_bids.rename(columns={f"power_{self.config_dict['id_meter_grid']}_quantiles": "net_bids",
                                           "price_quantiles": "price"}, inplace=True)
 
         df_potential_bids['net_bids'] = df_potential_bids['net_bids'].fillna(0)
         df_potential_bids['net_bids'] /= 4
-        df_potential_bids = df_potential_bids.astype({'price': 'float', 'net_bids': 'int', 'position_number': 'int'})
+        df_potential_bids = df_potential_bids.astype({'price': 'float', 'net_bids': 'int', 'position_number': 'int',
+                                                      'price_linear_desc': 'float'})
         df_potential_bids = df_potential_bids.set_index(['position_number'], append=True)
 
         ts = np.unique(np.array(df_potential_bids.index.get_level_values(level='timestamp')))
@@ -1185,7 +1187,8 @@ class Prosumer:
                                              db_obj.db_param.PRICE_ENERGY, db_obj.db_param.QUALITY_ENERGY,
                                              db_obj.db_param.PREMIUM_PREFERENCE_QUALITY, db_obj.db_param.TYPE_POSITION,
                                              db_obj.db_param.NUMBER_POSITION, db_obj.db_param.STATUS_POSITION,
-                                             db_obj.db_param.T_SUBMISSION, db_obj.db_param.TS_DELIVERY],
+                                             db_obj.db_param.T_SUBMISSION, db_obj.db_param.TS_DELIVERY,
+                                             'price_linear_desc'],
                                     index=df_potential_bids_temp.index)
         euro_kwh_to_sigma_wh = db_obj.db_param.EURO_TO_SIGMA / 1000
 
@@ -1211,14 +1214,19 @@ class Prosumer:
         df_positions[db_obj.db_param.T_SUBMISSION] = self.t_now
         df_positions[db_obj.db_param.TS_DELIVERY] = df_positions.index.get_level_values(level='timestamp')
         df_positions[db_obj.db_param.PRICE_ENERGY].fillna(df_potential_bids['price'], inplace=True)
+        df_positions['price_linear_desc'].fillna(df_potential_bids['price_linear_desc'], inplace=True)
+        df_positions[[db_obj.db_param.PRICE_ENERGY, 'price_linear_desc']] = df_positions[[db_obj.db_param.PRICE_ENERGY,
+                                                                                          'price_linear_desc']].round(2)
         # df_positions[db_obj.db_param.PRICE_ENERGY] = np.where(
         #     df_potential_bids_temp['net_bids_res'] < 0, round(self.config_dict["max_bid"], 6) * euro_kwh_to_sigma_wh,
         #     np.where(df_positions[db_obj.db_param.PRICE_ENERGY] < self.config_dict["min_offer"],
         #              round(self.config_dict["min_offer"], 6) * euro_kwh_to_sigma_wh,
         #              df_positions[db_obj.db_param.PRICE_ENERGY] * euro_kwh_to_sigma_wh))
         df_positions[db_obj.db_param.PRICE_ENERGY] = np.where(
-            df_potential_bids_temp['net_bids_res'] < 0, round(self.config_dict["min_offer"], 6) * euro_kwh_to_sigma_wh,
+            df_potential_bids_temp['net_bids_res'] < 0, df_positions['price_linear_desc'] * euro_kwh_to_sigma_wh,
             df_positions[db_obj.db_param.PRICE_ENERGY] * euro_kwh_to_sigma_wh)
+        df_positions = df_positions.drop('price_linear_desc', axis=1)
+
         if clear_positions:
             db_obj.clear_positions(id_user=self.config_dict['id_market_agent'])
         if not df_positions.empty:
@@ -1229,114 +1237,165 @@ class Prosumer:
         global list_soc
         list_soc = np.where(list_soc > 0, list_soc, 0)
         if x[f'power_{self._get_list_plants(plant_type="bat")[0]}'] <= 0:
+            # battery charging method
 
-            array_pos_bid_quantile = x['matched_bid_pos_quantile'] * (1 - self.base_quantiles)
-            array_pos_bid_rem = np.subtract(array_pos_bid_quantile,
-                                            x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}']).clip(min=0)
-            array_pos_bid = array_pos_bid_quantile - array_pos_bid_rem
-            array_pv_rem_quantile = x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}'] - array_pos_bid
+            # matched bid aligning for pv
+            matched_bids_pos_non_base = x['matched_bid_pos_quantile'] * (1 - self.base_quantiles)
+            matched_bids_pos_rem = np.subtract(matched_bids_pos_non_base,
+                                               x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}']).clip(min=0)
+            matched_bids_pos_pv = matched_bids_pos_non_base - matched_bids_pos_rem
+            pv_rem = x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}'] - matched_bids_pos_pv
 
-            array_pv_non_base = array_pv_rem_quantile * (1 - self.base_quantiles)
-            array_pv_bat_sub = np.add(np.cumsum(array_pv_non_base),
-                                      x[f'power_{self._get_list_plants(plant_type="bat")[0]}'])
-            length = len(array_pv_bat_sub[array_pv_bat_sub < 0])
-            array_pv_bat_sub[:length] = 0
-            array_pv_bat_sub[length + 1:] = 0
-            array_sub_rem_pv_non_base = np.subtract(array_pv_non_base, array_pv_bat_sub)
-            array_sub_rem_pv_non_base[length + 1:] = 0
-            array_pv_rem_quantile -= array_sub_rem_pv_non_base
-            bat_rem = x[f'power_{self._get_list_plants(plant_type="bat")[0]}'] + np.sum(array_sub_rem_pv_non_base)
-            array_add = np.add(np.cumsum(array_pv_rem_quantile[::-1])[::-1],
-                               bat_rem)
-            length = len(array_add[array_add >= 0])
-            array_add[:length - 1] = 0
-            array_add[length:] = 0
-            array_bat_sub = np.subtract(array_pv_rem_quantile, array_add)
-            array_bat_sub[:length - 1] = 0
-            array_pv_rem_quantile -= array_bat_sub
-            array_pv_rem_base = array_pv_rem_quantile * self.base_quantiles
-            array_sub = np.subtract(np.cumsum(array_pv_rem_base), x[f"power_in_{self.config_dict['id_meter_grid']}"])
-            length = len(array_sub[array_sub < 0])
-            array_sub[:length] = 0
-            array_sub[length + 1:] = 0
-            array_sub_rem_base = np.subtract(array_pv_rem_base, array_sub)
-            array_sub_rem_base[length + 1:] = 0
-            array_bat_sub += array_sub_rem_pv_non_base
-            list_soc = np.add(list_soc, array_bat_sub * 0.25).round(2)
-            array_bat_sub *= -1
-            array_bat = np.array(array_bat_sub).round(2)
-            array_grid_in = np.add((x[f"power_in_{self.config_dict['id_meter_grid']}"] -
-                                    np.sum(array_sub_rem_base)) * self.base_quantiles_first,
-                                   array_sub_rem_base).round(2)
-            array_hh_base = np.array(array_sub_rem_base).round(2)
-            array_grid_meter = np.subtract((x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}'] + array_bat),
-                                           array_grid_in).round(2)
-            array_pv_out = np.subtract((x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}'] + array_bat),
-                                       array_sub_rem_base).round(2)
+            # pv to battery
+            pv_cum = np.add(np.cumsum(pv_rem[::-1])[::-1],
+                               x[f'power_{self._get_list_plants(plant_type="bat")[0]}'])
+            length = len(pv_cum[pv_cum >= 0])
+            pv_cum[:length - 1] = 0
+            pv_cum[length:] = 0
+            pv_bat = np.subtract(pv_rem, pv_cum)
+            pv_bat[:length - 1] = 0
+            pv_rem -= pv_bat
+
+            # pv to load/grid in
+            pv_base = pv_rem * self.base_quantiles
+            pv_base_cum = np.subtract(np.cumsum(pv_base), x[f"power_in_{self.config_dict['id_meter_grid']}"])
+
+            length = len(pv_base_cum[pv_base_cum < 0])
+            pv_base_cum[:length] = 0
+            pv_base_cum[length + 1:] = 0
+
+            pv_base_grid_in = np.subtract(pv_base, pv_base_cum)
+            pv_base_grid_in[length + 1:] = 0
+
+            grid_in_rem = x[f"power_in_{self.config_dict['id_meter_grid']}"] - np.sum(pv_base_grid_in)
+            pv_rem -= pv_base_grid_in
+            list_soc = np.add(list_soc, pv_bat * 0.25).round(2)
+            pv_bat *= -1
+
+            bat_quantile = np.array(pv_bat).round(2)
+            bat_grid_out = np.zeros(len(self.base_quantiles))
+            grid_in = np.add(grid_in_rem * self.base_quantiles_first, pv_base_grid_in).round(2)
+            hh_quantile = np.array(pv_base_grid_in).round(2)
+
+            if matched_bids_pos_rem.sum() > 0:
+                pv_grid_out = np.add(matched_bids_pos_pv, pv_base - pv_base_grid_in).round(2)
+                grid_meter = np.subtract(pv_grid_out, grid_in_rem * self.base_quantiles_first).round(2)
+            else:
+                pv_grid_out = np.subtract((x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}'] + bat_quantile),
+                                          pv_base_grid_in).round(2)
+                grid_meter = np.subtract((x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}'] + bat_quantile),
+                                         grid_in).round(2)
 
         else:
+            # battery discharging method
 
-            array_pos_bid_quantile = x['matched_bid_pos_quantile'] * (1 - self.base_quantiles)
-            array_pos_bid_rem = np.subtract(array_pos_bid_quantile,
-                                            x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}']).clip(min=0)
-            array_pos_bid = array_pos_bid_quantile - array_pos_bid_rem
-            array_pv_rem_quantile = x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}'] - array_pos_bid
-            array_soc_sub = np.subtract(list_soc, array_pos_bid_rem * 0.25)
-            array_soc_sub_rem = array_soc_sub.clip(min=0)
-            array_bat_quantile = (list_soc - array_soc_sub_rem) * 4
-            array_sub_bat = np.subtract(np.cumsum(array_bat_quantile),
-                                        x[f'power_{self._get_list_plants(plant_type="bat")[0]}'])
-            length = len(array_sub_bat[array_sub_bat < 0])
-            array_sub_bat[:length] = 0
-            array_sub_bat[length + 1:] = 0
-            array_bat_quantile = np.subtract(array_bat_quantile, array_sub_bat)
-            array_bat_quantile[length + 1:] = 0
-            list_soc = np.subtract(list_soc, array_bat_quantile / 4).round(2)
-            bat_rem = x[f'power_{self._get_list_plants(plant_type="bat")[0]}'] - np.sum(array_bat_quantile)
-            array_pv_base = array_pv_rem_quantile * self.base_quantiles
-            array_sub = np.subtract(np.cumsum(array_pv_base), x[f"power_in_{self.config_dict['id_meter_grid']}"])
-            length = len(array_sub[array_sub < 0])
-            array_sub[:length] = 0
-            array_sub[length + 1:] = 0
-            array_sub_pv_base = np.subtract(array_pv_base, array_sub)
-            array_sub_pv_base[length + 1:] = 0
-            grid_in_rem = x[f"power_in_{self.config_dict['id_meter_grid']}"] - np.sum(array_sub_pv_base)
+            # matched bids aligning for pv
+            matched_bids_pos_non_base = x['matched_bid_pos_quantile'] * (1 - self.base_quantiles)
+            matched_bids_pos_rem = np.subtract(matched_bids_pos_non_base,
+                                               x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}']).clip(min=0)
+            matched_bids_pos_pv = matched_bids_pos_non_base - matched_bids_pos_rem
+            pv_rem = x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}'] - matched_bids_pos_pv
 
+            # matched bids aligning for battery
+            soc_rem = np.subtract(list_soc, matched_bids_pos_rem * 0.25).clip(min=0)
+            matched_bids_pos_bat = (list_soc - soc_rem) * 4
+            matched_bids_pos_bat_cum = np.subtract(np.cumsum(matched_bids_pos_bat),
+                                                   x[f'power_{self._get_list_plants(plant_type="bat")[0]}'])
+
+            length = len(matched_bids_pos_bat_cum[matched_bids_pos_bat_cum < 0])
+            matched_bids_pos_bat_cum[:length] = 0
+            matched_bids_pos_bat_cum[length + 1:] = 0
+
+            matched_bids_pos_bat = np.subtract(matched_bids_pos_bat, matched_bids_pos_bat_cum)
+            matched_bids_pos_bat[length + 1:] = 0
+
+            matched_bids_pos_rem -= matched_bids_pos_bat
+            list_soc = np.subtract(list_soc, matched_bids_pos_bat * 0.25).round(2)
+            bat_rem = x[f'power_{self._get_list_plants(plant_type="bat")[0]}'] - np.sum(matched_bids_pos_bat)
+
+            # pv to load/grid in
+            pv_base = pv_rem * self.base_quantiles
+            pv_base_cum = np.subtract(np.cumsum(pv_base), x[f"power_in_{self.config_dict['id_meter_grid']}"])
+
+            length = len(pv_base_cum[pv_base_cum < 0])
+            pv_base_cum[:length] = 0
+            pv_base_cum[length + 1:] = 0
+
+            pv_base_grid_in = np.subtract(pv_base, pv_base_cum)
+            pv_base_grid_in[length + 1:] = 0
+            grid_in_rem = x[f"power_in_{self.config_dict['id_meter_grid']}"] - np.sum(pv_base_grid_in)
+
+            # bat to grid in
             list_soc_base = list_soc * self.base_quantiles
             if grid_in_rem < bat_rem:
-                array_soc_sub = np.subtract(np.cumsum(list_soc_base), grid_in_rem * 0.25)
+                soc_base_cum = np.subtract(np.cumsum(list_soc_base), grid_in_rem * 0.25)
             else:
-                array_soc_sub = np.subtract(np.cumsum(list_soc_base),
-                                            bat_rem * 0.25)
-            length = len(array_soc_sub[array_soc_sub < 0])
-            array_soc_sub[:length] = 0
-            array_soc_sub[length + 1:] = 0
-            array_grid_in_sub = np.subtract(list_soc_base, array_soc_sub)
-            array_grid_in_sub[length + 1:] = 0
-            list_soc = np.subtract(list_soc, array_grid_in_sub)
-            grid_in_rem -= np.sum(array_grid_in_sub * 4).round(2)
-            bat_rem -= np.sum(array_grid_in_sub * 4).round(2)
-            array_soc_sub = np.subtract(np.cumsum(list_soc[::-1])[::-1], bat_rem * 0.25)
-            length = len(array_soc_sub[array_soc_sub >= 0])
-            array_soc_sub[:length - 1] = 0
-            array_soc_sub[length:] = 0
-            array_bat_sub = np.subtract(list_soc, array_soc_sub)
-            array_bat_sub[:length - 1] = 0
-            list_soc = np.subtract(list_soc, array_bat_sub).round(2)
-            array_bat_sub *= 4
-            array_bat = np.array(array_grid_in_sub * 4 + array_bat_sub + array_bat_quantile).round(2)
-            array_bat_sub = np.array(array_bat_sub + array_bat_quantile).round(2)
-            array_grid_in = np.array(grid_in_rem * self.base_quantiles_first +
-                                     array_grid_in_sub * 4 + array_sub_pv_base).round(2)
-            array_hh_base = np.array(array_grid_in_sub * 4 + array_sub_pv_base).round(2)
-            array_pv_out = np.subtract(x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}'],
-                                       array_sub_pv_base).round(2)
-            array_grid_meter = np.subtract((array_bat + x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}']),
-                                           array_grid_in).round(2)
+                soc_base_cum = np.subtract(np.cumsum(list_soc_base), bat_rem * 0.25)
+
+            length = len(soc_base_cum[soc_base_cum < 0])
+            soc_base_cum[:length] = 0
+            soc_base_cum[length + 1:] = 0
+
+            grid_in_bat = np.subtract(list_soc_base, soc_base_cum)
+            grid_in_bat[length + 1:] = 0
+
+            list_soc = np.subtract(list_soc, grid_in_bat)
+            grid_in_bat *= 4
+
+            grid_in_rem -= np.sum(grid_in_bat).round(2)
+            bat_rem -= np.sum(grid_in_bat).round(2)
+
+            if matched_bids_pos_rem.sum() > 0:
+
+                # final values battery quantiles and battery grid out quantiles
+                bat_quantile = np.array(matched_bids_pos_bat + grid_in_bat).round(2)
+                bat_grid_out = np.array(matched_bids_pos_bat).round(2)
+                pv_grid_out = np.add((x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}'] *
+                                       self.base_quantiles - pv_base_grid_in), matched_bids_pos_pv).round(2)
+            else:
+                # bat to grid out non-base
+                list_soc_non_base = list_soc * (1 - self.base_quantiles)
+                soc_non_base_cum = np.subtract(np.cumsum(list_soc_non_base), bat_rem * 0.25)
+
+                length = len(soc_non_base_cum[soc_non_base_cum < 0])
+                soc_non_base_cum[:length] = 0
+                soc_non_base_cum[length + 1:] = 0
+
+                grid_out_bat_non_base = np.subtract(list_soc_non_base, soc_non_base_cum)
+                grid_out_bat_non_base[length + 1:] = 0
+
+                list_soc = np.subtract(list_soc, grid_out_bat_non_base)
+                grid_out_bat_non_base *= 4
+
+                bat_rem -= np.sum(grid_out_bat_non_base).round(2)
+
+                # bat to grid out base
+                list_soc_base = list_soc * self.base_quantiles
+                soc_base_cum = np.subtract(np.cumsum(list_soc_base), bat_rem * 0.25)
+
+                length = len(soc_base_cum[soc_base_cum < 0])
+                soc_base_cum[:length] = 0
+                soc_base_cum[length + 1:] = 0
+
+                grid_out_bat_base = np.subtract(list_soc_base, soc_base_cum)
+                grid_out_bat_base[length + 1:] = 0
+
+                list_soc = np.subtract(list_soc, grid_out_bat_base)
+                grid_out_bat_base *= 4
+
+                # final values battery quantiles and battery grid out quantiles
+                bat_quantile = np.array(matched_bids_pos_bat + grid_in_bat + grid_out_bat_non_base + grid_out_bat_base
+                                     ).round(2)
+                bat_grid_out = np.array(matched_bids_pos_bat + grid_out_bat_non_base + grid_out_bat_base).round(2)
+                pv_grid_out = np.subtract(x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}'],
+                                           pv_base_grid_in).round(2)
+
+            hh_quantile = np.array(grid_in_bat + pv_base_grid_in).round(2)
+            grid_meter = np.add(pv_grid_out, bat_grid_out).round(2)
 
         list_soc = np.where(list_soc > 0, list_soc, 0)
-        return [list_soc.tolist(), array_bat.tolist(), array_hh_base.tolist(), array_grid_meter.tolist(),
-                array_pv_out.tolist(), np.array(array_bat_sub).round(2).tolist()]
+        return [list_soc.tolist(), bat_quantile.tolist(), hh_quantile.tolist(), grid_meter.tolist(),
+                pv_grid_out.tolist(), np.array(bat_grid_out).round(2).tolist()]
 
     def bat_quantile_test(self, x):
         global list_soc

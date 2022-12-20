@@ -124,13 +124,8 @@ def market_clearing(db_obj,
                 # Combinations WITHOUT consideration of quality premium
                 if 'pda' == type_clearing:
                     positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
-                        clearing_pda_test(db_obj,
-                                     config_lem,
-                                     offers_ts_d,
-                                     bids_ts_d,
-                                     plotting=plotting,
-                                     plotting_title=plotting_title,
-                                     t_now=t_now, i=i)
+                        clearing_pda_test(db_obj, config_lem, offers_ts_d, bids_ts_d, plotting=plotting,
+                                          plotting_title=plotting_title, t_now=time.time(), i=i)
 
                 if 'h2l' == type_clearing:
                     positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared = \
@@ -1157,16 +1152,25 @@ def _clearing(df, db_obj):
     df_offer = pd.DataFrame.from_dict(dict_offer, orient='index').T
 
     if not df_1.empty:
-        df_1.iloc[-1, df_1.columns.get_loc(db_obj.db_param.QTY_ENERGY)] -=\
-            df_1.iloc[-1,df_1.columns.get_loc('qty_energy_cumsum')] - dict_offer[db_obj.db_param.QTY_ENERGY]
+        if df_1.iloc[-1,df_1.columns.get_loc('qty_energy_cumsum')] > dict_offer[db_obj.db_param.QTY_ENERGY]:
+            df_1.iloc[-1, df_1.columns.get_loc(db_obj.db_param.QTY_ENERGY)] -=\
+                df_1.iloc[-1,df_1.columns.get_loc('qty_energy_cumsum')] - dict_offer[db_obj.db_param.QTY_ENERGY]
+        else:
+            dict_offer[db_obj.db_param.QTY_ENERGY] -= df_1.iloc[-1,df_1.columns.get_loc('qty_energy_cumsum')]
+            df_offer_rem = pd.DataFrame.from_dict(dict_offer, orient='index').T
+            list_offers_uncleared.append(df_offer_rem)
+            dict_offer[db_obj.db_param.QTY_ENERGY] = df_1.iloc[-1,df_1.columns.get_loc('qty_energy_cumsum')]
+
+        df_offer = pd.DataFrame.from_dict(dict_offer, orient='index').T
         df_1.set_index(df_1[db_obj.db_param.QTY_ENERGY].cumsum(), inplace=True)
         df_offer.set_index(df_offer[db_obj.db_param.QTY_ENERGY].cumsum(), inplace=True)
 
         df_1 = df_1.drop(columns={'qty_energy_cumsum', 'qty_energy_cumsum_shift'})
         list_positions_cleared.append(df_offer.merge(df_1, how='outer', left_index=True, right_index=True,
-                                               indicator=False, suffixes=[db_obj.db_param.EXTENSION_OFFER,
-                                                                          db_obj.db_param.EXTENSION_BID]).fillna(
+                                                     indicator=False, suffixes=[db_obj.db_param.EXTENSION_OFFER,
+                                                                                db_obj.db_param.EXTENSION_BID]).fillna(
             method='backfill').reset_index(drop=True))
+
     else:
         list_offers_uncleared.append(df_offer)
 
@@ -1246,10 +1250,10 @@ def clearing_pda_test(db_obj,
         df_offers = offers[offers[db_obj.db_param.PRICE_ENERGY] <= bids[db_obj.db_param.PRICE_ENERGY].max()].copy()
         list_df_bids = [bids[~bids.index.isin(df_bids.index)]]
 
-        offers_sorted = df_offers.sort_values(by=[db_obj.db_param.PRICE_ENERGY, db_obj.db_param.QUALITY_ENERGY],
+        offers_sorted = df_offers.sort_values(by=[db_obj.db_param.PRICE_ENERGY, db_obj.db_param.QTY_ENERGY],
                                            ascending=[True, False],
                                            ignore_index=True)
-        bids_sorted = df_bids.sort_values(by=[db_obj.db_param.PRICE_ENERGY, db_obj.db_param.QUALITY_ENERGY],
+        bids_sorted = df_bids.sort_values(by=[db_obj.db_param.PRICE_ENERGY, db_obj.db_param.QTY_ENERGY],
                                        ascending=[False, False],
                                        ignore_index=True)
 
@@ -1268,14 +1272,6 @@ def clearing_pda_test(db_obj,
         list_df_bids.append(df_bid)
         if len(list_df_bids):
             bids_uncleared = pd.concat(list_df_bids).reset_index(drop=True)
-        # if not bids_uncleared.empty:
-        #     bids_uncleared = bids_uncleared.drop(columns={'qty_energy_cumsum', 'qty_energy_cumsum_shift'})
-        # if not positions_cleared.empty:
-        #     print('positions before')
-        #     print(positions_cleared)
-        #     positions_cleared = positions_cleared.drop(columns={'qty_energy_cumsum', 'qty_energy_cumsum_shift'})
-        #     print('positions after')
-        #     print(positions_cleared)
 
         # Convert floats (occur due to merging with NaN rows) to ints
         for column in positions_cleared.columns:
@@ -1358,15 +1354,19 @@ def clearing_pda_test(db_obj,
                                   plotting_title=plotting_title,
                                   y_lim=plotting_ylim)
 
+        # if not positions_cleared.empty:
+        #     offers_sorted.to_csv(f'offers_sorted_{t_now}_{i}.csv')
+        #     bids_sorted.to_csv(f'bids_sorted_{t_now}_{i}.csv')
+        #     positions_cleared.to_csv(f'positions_cleared_{t_now}_{i}.csv')
+        #     offers_uncleared.to_csv(f'offers_uncleared_{t_now}_{i}.csv')
+        #     bids_uncleared.to_csv(f'bids_uncleared_{t_now}_{i}.csv')
+        #     offers_cleared.to_csv(f'offers_cleared_{t_now}_{i}.csv')
+        #     bids_cleared.to_csv(f'bids_cleared_{t_now}_{i}.csv')
+
     except Exception:
         traceback.print_exc()
 
-    # print('positions************')
-    # print(positions_cleared)
-    # print(offers_uncleared)
-    # print(bids_uncleared)
-    # print(offers_cleared)
-    # print(bids_cleared)
+
     return positions_cleared, offers_uncleared, bids_uncleared, offers_cleared, bids_cleared
 
 def clearing_cc(db_obj,

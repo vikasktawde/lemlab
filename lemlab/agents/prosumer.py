@@ -108,15 +108,20 @@ class Prosumer:
                                     db_obj=db_obj)
             # update forecasts for all plants, retrain if necessary
             self.fcast_manager.update_forecasts()
+
             if self.config_dict["id_user"] == "0000000001":
                 self.controller_model_predictive_test()
                 # self.controller_model_predictive()
             else:
                 # execute model predictive control
                 self.controller_model_predictive()
+
             # # execute model predictive control
             # self.controller_model_predictive()
-            # finally then, execute market agent if ex-ante market
+
+            # # finally then, execute market agent if ex-ante market
+            # self.market_agent(db_obj=db_obj, clear_positions=clear_positions)
+
             if db_obj.lem_config["types_clearing_ex_ante"]:
                 if self.config_dict["id_user"] == "0000000001":
                     self.market_agent_test(db_obj=db_obj, clear_positions=clear_positions)
@@ -903,8 +908,8 @@ class Prosumer:
         self.mpc_table[f'power_{self._get_list_plants(plant_type=["pv"])[0]}'] = self.mpc_table.apply(
             lambda x: list(np.array(self.pv_gen(x=x))), axis=1)
 
-        ft.write_dataframe(self.mpc_table.reset_index(),
-                           os.path.join(self.path_out, f'mpc_{self.count}.ft'))
+        # ft.write_dataframe(self.mpc_table.reset_index(),
+        #                    os.path.join(self.path_out, f'mpc_{self.count}.ft'))
 
         # quantile shifting algorithm
         if int(ts_delivery_start + 900) < self.ts_delivery_current:
@@ -919,8 +924,9 @@ class Prosumer:
             #     0.000001) * self.mpc_table["state_grid_pos"])
 
             self.mpc_table["state_grid_pos"] = self.mpc_table.apply(lambda x: np.array(
-                np.array(x['matched_bid_pos_quantile'], dtype=float) - np.array(x['power_d9cs7533vi_pos_quantiles'],
-                                                                                dtype=float)).clip(min=0).sum(), axis=1)
+                np.array(x['matched_bid_pos_quantile'], dtype=float) - np.array(
+                    x[f"power_{self.config_dict['id_meter_grid']}_pos_quantiles"],
+                    dtype=float)).clip(min=0).sum(), axis=1)
 
             self.mpc_table["price"] = np.where(
                 self.mpc_table["state_grid_pos"] > 0,
@@ -1131,6 +1137,8 @@ class Prosumer:
 
         ft.write_dataframe(df_potential_bids.reset_index(), f"{self.path}/controller_mpc.ft")
         df_potential_bids.to_csv(os.path.join(self.path_out, f'mpc_after_{self.count}.csv'))
+        ft.write_dataframe(df_potential_bids.reset_index(),
+                           os.path.join(self.path_out, f'mpc_after_{self.count}.ft'))
 
         df_potential_bids['price_linear_desc'] = np.linspace(start=0.1, stop=0.01, num=len(df_potential_bids))
         df_potential_bids = df_potential_bids.explode([f"power_{self.config_dict['id_meter_grid']}_quantiles",
@@ -1154,7 +1162,8 @@ class Prosumer:
         position_number = np.array([0, 1, 2, 3, 4, 5, 6, 7, 8])
         df_potential_bids_temp['position_number'] = np.tile(position_number[:int(self.base_quantiles.sum())],
                                              (len(df_potential_bids_temp), 1)).tolist()
-        df_potential_bids_temp = df_potential_bids_temp.explode(['position_number']).set_index('position_number', append=True)
+        df_potential_bids_temp = df_potential_bids_temp.explode(['position_number']).set_index('position_number',
+                                                                                               append=True)
         df_potential_bids['price_linear'] = df_potential_bids.index.map(df_potential_bids_temp['price'])
         df_potential_bids['price'] = df_potential_bids['price_linear'].fillna(df_potential_bids['price'])
 
@@ -1201,9 +1210,14 @@ class Prosumer:
                 has_non_ren = np.ones(len(df_positions), dtype=bool)
 
         df_positions[db_obj.db_param.ID_USER] = self.config_dict['id_market_agent']
-        df_positions[db_obj.db_param.QTY_ENERGY] = df_potential_bids_temp['net_bids_res'].abs()
-        df_positions[db_obj.db_param.TYPE_POSITION] = np.where(df_potential_bids_temp['net_bids_res'] > 0, "offer", "bid")
+
         df_positions[db_obj.db_param.NUMBER_POSITION] = df_positions.index.get_level_values(level='position_number')
+        df_positions[db_obj.db_param.QTY_ENERGY] = df_potential_bids_temp['net_bids_res']
+        df_positions[db_obj.db_param.QTY_ENERGY] = np.where((~df_positions[db_obj.db_param.NUMBER_POSITION].isin([0]))
+                                                            & (df_positions[db_obj.db_param.QTY_ENERGY] < 0),
+                                                            0, df_positions[db_obj.db_param.QTY_ENERGY].abs())
+
+        df_positions[db_obj.db_param.TYPE_POSITION] = np.where(df_potential_bids_temp['net_bids_res'] > 0, "offer", "bid")
         df_positions[db_obj.db_param.STATUS_POSITION] = 0
         df_positions[db_obj.db_param.QUALITY_ENERGY] = np.where(
             df_potential_bids_temp['net_bids_res'] < 0, self.config_dict["ma_preference_quality"],
@@ -1226,6 +1240,7 @@ class Prosumer:
             df_potential_bids_temp['net_bids_res'] < 0, df_positions['price_linear_desc'] * euro_kwh_to_sigma_wh,
             df_positions[db_obj.db_param.PRICE_ENERGY] * euro_kwh_to_sigma_wh)
         df_positions = df_positions.drop('price_linear_desc', axis=1)
+        df_positions = df_positions[df_positions[db_obj.db_param.QTY_ENERGY] != 0]
 
         if clear_positions:
             db_obj.clear_positions(id_user=self.config_dict['id_market_agent'])
@@ -1240,10 +1255,15 @@ class Prosumer:
             # battery charging method
 
             # matched bid aligning for pv
-            matched_bids_pos_non_base = x['matched_bid_pos_quantile'] * (1 - self.base_quantiles)
-            matched_bids_pos_rem = np.subtract(matched_bids_pos_non_base,
+            # matched_bids_pos_non_base = x['matched_bid_pos_quantile'] * (1 - self.base_quantiles)
+            # matched_bids_pos_rem = np.subtract(matched_bids_pos_non_base,
+            #                                    x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}']).clip(min=0)
+            # matched_bids_pos_pv = matched_bids_pos_non_base - matched_bids_pos_rem
+
+            matched_bids_pos = np.array(x['matched_bid_pos_quantile']).astype(float)
+            matched_bids_pos_rem = np.subtract(matched_bids_pos,
                                                x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}']).clip(min=0)
-            matched_bids_pos_pv = matched_bids_pos_non_base - matched_bids_pos_rem
+            matched_bids_pos_pv = matched_bids_pos - matched_bids_pos_rem
             pv_rem = x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}'] - matched_bids_pos_pv
 
             # pv to battery
@@ -1277,6 +1297,8 @@ class Prosumer:
             grid_in = np.add(grid_in_rem * self.base_quantiles_first, pv_base_grid_in).round(2)
             hh_quantile = np.array(pv_base_grid_in).round(2)
 
+            matched_bids_pos_rem *= (1 - self.base_quantiles)
+
             if matched_bids_pos_rem.sum() > 0:
                 pv_grid_out = np.add(matched_bids_pos_pv, pv_base - pv_base_grid_in).round(2)
                 grid_meter = np.subtract(pv_grid_out, grid_in_rem * self.base_quantiles_first).round(2)
@@ -1290,10 +1312,15 @@ class Prosumer:
             # battery discharging method
 
             # matched bids aligning for pv
-            matched_bids_pos_non_base = x['matched_bid_pos_quantile'] * (1 - self.base_quantiles)
-            matched_bids_pos_rem = np.subtract(matched_bids_pos_non_base,
+            # matched_bids_pos_non_base = x['matched_bid_pos_quantile'] * (1 - self.base_quantiles)
+            # matched_bids_pos_rem = np.subtract(matched_bids_pos_non_base,
+            #                                    x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}']).clip(min=0)
+            # matched_bids_pos_pv = matched_bids_pos_non_base - matched_bids_pos_rem
+
+            matched_bids_pos = np.array(x['matched_bid_pos_quantile']).astype(float)
+            matched_bids_pos_rem = np.subtract(matched_bids_pos,
                                                x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}']).clip(min=0)
-            matched_bids_pos_pv = matched_bids_pos_non_base - matched_bids_pos_rem
+            matched_bids_pos_pv = matched_bids_pos - matched_bids_pos_rem
             pv_rem = x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}'] - matched_bids_pos_pv
 
             # matched bids aligning for battery
@@ -1345,13 +1372,15 @@ class Prosumer:
             grid_in_rem -= np.sum(grid_in_bat).round(2)
             bat_rem -= np.sum(grid_in_bat).round(2)
 
+            matched_bids_pos_rem *= (1 - self.base_quantiles)
+
             if matched_bids_pos_rem.sum() > 0:
 
                 # final values battery quantiles and battery grid out quantiles
                 bat_quantile = np.array(matched_bids_pos_bat + grid_in_bat).round(2)
                 bat_grid_out = np.array(matched_bids_pos_bat).round(2)
-                pv_grid_out = np.add((x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}'] *
-                                       self.base_quantiles - pv_base_grid_in), matched_bids_pos_pv).round(2)
+                pv_grid_out = np.add((x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}'] * self.base_quantiles -
+                                      pv_base_grid_in), matched_bids_pos_pv * (1 - self.base_quantiles)).round(2)
             else:
                 # bat to grid out non-base
                 list_soc_non_base = list_soc * (1 - self.base_quantiles)

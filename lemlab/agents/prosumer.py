@@ -92,6 +92,7 @@ class Prosumer:
         self.matched_bids_by_timestep = None
         self.count = count
         self.base_quantiles = None
+        self.save_output_result = False
 
     def pre_clearing_activity(self, db_obj, clear_positions=False):
         self.update_user_preferences(db_obj)
@@ -109,7 +110,7 @@ class Prosumer:
             # update forecasts for all plants, retrain if necessary
             self.fcast_manager.update_forecasts()
 
-            if self.config_dict["id_user"] == "0000000001":
+            if self.config_dict["id_user"] == "0000000002":
                 self.controller_model_predictive_test()
                 # self.controller_model_predictive()
             else:
@@ -123,7 +124,7 @@ class Prosumer:
             # self.market_agent(db_obj=db_obj, clear_positions=clear_positions)
 
             if db_obj.lem_config["types_clearing_ex_ante"]:
-                if self.config_dict["id_user"] == "0000000001":
+                if self.config_dict["id_user"] == "0000000002":
                     self.market_agent_test(db_obj=db_obj, clear_positions=clear_positions)
                     self.plot_graph_before()
                 else:
@@ -139,7 +140,7 @@ class Prosumer:
         if "mpc" in self.config_dict["controller_strategy"]:
             self.set_target_grid_power(market_type)
 
-        if self.config_dict["id_user"] == "0000000001":
+        if self.config_dict["id_user"] == "0000000002":
             self.plot_graph_after()
 
     # internal functions
@@ -1136,9 +1137,10 @@ class Prosumer:
             index=df_potential_bids.index).to_list(), index=df_potential_bids.index)
 
         ft.write_dataframe(df_potential_bids.reset_index(), f"{self.path}/controller_mpc.ft")
-        df_potential_bids.to_csv(os.path.join(self.path_out, f'mpc_after_{self.count}.csv'))
-        ft.write_dataframe(df_potential_bids.reset_index(),
-                           os.path.join(self.path_out, f'mpc_after_{self.count}.ft'))
+        if self.save_output_result:
+            df_potential_bids.to_csv(os.path.join(self.path_out, f'mpc_after_{self.count}.csv'))
+            ft.write_dataframe(df_potential_bids.reset_index(),
+                               os.path.join(self.path_out, f'mpc_after_{self.count}.ft'))
 
         df_potential_bids['price_linear_desc'] = np.linspace(start=0.1, stop=0.01, num=len(df_potential_bids))
         df_potential_bids = df_potential_bids.explode([f"power_{self.config_dict['id_meter_grid']}_quantiles",
@@ -1245,7 +1247,8 @@ class Prosumer:
         if clear_positions:
             db_obj.clear_positions(id_user=self.config_dict['id_market_agent'])
         if not df_positions.empty:
-            df_positions.to_csv(os.path.join(self.path_out, f'positions_{self.count}.csv'))
+            if self.save_output_result:
+                df_positions.to_csv(os.path.join(self.path_out, f'positions_{self.count}.csv'))
             db_obj.post_positions(df_positions, t_override=self.t_now)
 
     def bat_quantile(self, x):
@@ -1572,7 +1575,8 @@ class Prosumer:
         ax2.set_ylim(0, int(self.plant_dict[self._get_list_plants(plant_type="bat")[0]]["capacity"]))
         ax3.set_ylim(-1, 2)
 
-        plt.savefig(os.path.join(self.path_plot, f'{self.count}_plot_before.png'), bbox_inches='tight')
+        if self.save_output_result:
+            plt.savefig(os.path.join(self.path_plot, f'{self.count}_plot_before.png'), bbox_inches='tight')
         plt.close(fig)
         # plt.show()
 
@@ -1583,7 +1587,8 @@ class Prosumer:
 
         # matched bids
         df_matched_bids = self.matched_bids
-        df_matched_bids.to_csv(os.path.join(self.path_out, f'bids_cleared_first_{self.count}.csv'))
+        if self.save_output_result:
+            df_matched_bids.to_csv(os.path.join(self.path_out, f'bids_cleared_first_{self.count}.csv'))
         df_matched_bids['position_number'] = np.where(df_matched_bids['id_user_bid'] == self.config_dict["id_user"],
                                                       df_matched_bids['number_position_bid'],
                                                       df_matched_bids['number_position_offer'])
@@ -1679,7 +1684,8 @@ class Prosumer:
         ax2.set_ylim(0, int(self.plant_dict[self._get_list_plants(plant_type="bat")[0]]["capacity"]))
         ax3.set_ylim(-1, 2)
 
-        plt.savefig(os.path.join(self.path_plot, f'{self.count}_plot_after.png'), bbox_inches='tight')
+        if self.save_output_result:
+            plt.savefig(os.path.join(self.path_plot, f'{self.count}_plot_after.png'), bbox_inches='tight')
         plt.close(fig)
         # plt.show()
 

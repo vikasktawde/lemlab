@@ -56,6 +56,7 @@ class Prosumer:
                             timestamp, otherwise the current time is used.
         """
         # set current timestamp from system clock or keyword arg
+        self.base_quantiles_first = None
         self.t_now = t_override if t_override else pd.Timestamp.now().timestamp()
         # derive previous and next timestamps
         self.ts_delivery_prev = round(pd.Timestamp(self.t_now, unit="s").floor("15min").timestamp() - 15 * 60)
@@ -92,7 +93,7 @@ class Prosumer:
         self.matched_bids_by_timestep = None
         self.count = count
         self.base_quantiles = None
-        self.save_output_result = False
+        self.save_output_result = True
 
     def pre_clearing_activity(self, db_obj, clear_positions=False):
         self.update_user_preferences(db_obj)
@@ -110,9 +111,9 @@ class Prosumer:
             # update forecasts for all plants, retrain if necessary
             self.fcast_manager.update_forecasts()
 
-            if self.config_dict["id_user"] == "0000000002":
+            if self.config_dict["id_user"] == "0000000001":
                 self.controller_model_predictive_test()
-                # self.controller_model_predictive()
+                # self.mpc_qtl()
             else:
                 # execute model predictive control
                 self.controller_model_predictive()
@@ -124,9 +125,10 @@ class Prosumer:
             # self.market_agent(db_obj=db_obj, clear_positions=clear_positions)
 
             if db_obj.lem_config["types_clearing_ex_ante"]:
-                if self.config_dict["id_user"] == "0000000002":
+                if self.config_dict["id_user"] == "0000000001":
                     self.market_agent_test(db_obj=db_obj, clear_positions=clear_positions)
                     self.plot_graph_before()
+                    # self.market_agent_qtl(db_obj=db_obj, clear_positions=clear_positions)
                 else:
                     self.market_agent(db_obj=db_obj, clear_positions=clear_positions)
 
@@ -140,7 +142,7 @@ class Prosumer:
         if "mpc" in self.config_dict["controller_strategy"]:
             self.set_target_grid_power(market_type)
 
-        if self.config_dict["id_user"] == "0000000002":
+        if self.config_dict["id_user"] == "0000000001":
             self.plot_graph_after()
 
     # internal functions
@@ -807,6 +809,7 @@ class Prosumer:
 
         # forecast table section
         self.fcast_table = ft.read_dataframe(f"{self.path}/fcasts_current.ft").set_index("timestamp")
+
         self.fcast_table = self.fcast_table[self.fcast_table.index.isin(timesteps)]
         self.fcast_table[f'power_{self._get_list_plants(plant_type="hh")[0]}'] *= -1
         probability = np.array([0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1])
@@ -833,6 +836,7 @@ class Prosumer:
         self.fcast_table[f"power_{self.config_dict['id_meter_grid']}_quantiles"] =\
             np.tile(np.zeros(9).astype(int), (len(self.fcast_table), 1)).tolist()
         self.fcast_table.index = self.fcast_table.index.astype(dtype='int64')
+
         list_col = [f"power_{self.config_dict['id_meter_grid']}_quantiles",
                     f"power_{self.config_dict['id_meter_grid']}", 'price', 'quantile_number', 'matched_bid_pos',
                     f'power_{self._get_list_plants(plant_type="hh")[0]}_quantiles',
@@ -971,6 +975,7 @@ class Prosumer:
         model.power_pv = pyo.Var(model.t, within=pyo.NonNegativeReals)
         bat_power = self.plant_dict[self._get_list_plants(plant_type="bat")[0]]["power"]
         bat_capacity = self.plant_dict[self._get_list_plants(plant_type="bat")[0]]["capacity"]
+        eta_bat = self.plant_dict[self._get_list_plants(plant_type="bat")[0]]["efficiency"]
         model.power_bat_in = pyo.Var(model.t, within=pyo.NonNegativeReals, bounds=(0, bat_power))
         model.power_bat_out = pyo.Var(model.t, within=pyo.NonNegativeReals, bounds=(0, bat_power))
         model.soc_bat = pyo.Var(model.t, within=pyo.NonNegativeReals, bounds=(0, bat_capacity))
@@ -994,6 +999,7 @@ class Prosumer:
             self.mpc_table[f'power_{self._get_list_plants(plant_type="hh")[0]}_quantiles'].apply(lambda x: np.sum(x)))
         with open(f'{self.path}/soc_{self._get_list_plants(plant_type="bat")[0]}.json', "r") as read_file:
             soc_bat_init = json.load(read_file)
+
 
         # constraints
         # battery either charge or discharge constraint
@@ -1021,15 +1027,15 @@ class Prosumer:
 
         # initial battery soc constraint
         def init_soc_battery_constraint(model):
-            return soc_bat_init - (0.25 * model.power_bat_out[self.ts_delivery_current]) + \
-                   (0.25 * model.power_bat_in[self.ts_delivery_current]) == model.soc_bat[self.ts_delivery_current]
+            return soc_bat_init - (0.25 * model.power_bat_out[self.ts_delivery_current] / eta_bat) + \
+                   (0.25 * model.power_bat_in[self.ts_delivery_current] * eta_bat) == model.soc_bat[self.ts_delivery_current]
 
         model.init_soc_battery_constraint = pyo.Constraint(rule=init_soc_battery_constraint)
 
         # soc balance constraint
         def soc_battery_constraint(model, t):
-            return model.soc_bat[t - int(900)] - (0.25 * model.power_bat_out[t]) + \
-                   (0.25 * model.power_bat_in[t]) == model.soc_bat[t]
+            return model.soc_bat[t - int(900)] - (0.25 * model.power_bat_out[t] / eta_bat) + \
+                   (0.25 * model.power_bat_in[t] * eta_bat) == model.soc_bat[t]
 
         model.soc_battery_constraint = pyo.Constraint(model.t_restricted, rule=soc_battery_constraint)
 
@@ -1066,13 +1072,13 @@ class Prosumer:
         # energy deviation constraint
         def energy_deviation_constraint(model, t):
             return model.scale * dict_price_norm[t] == model.power_grid_out[t] - dict_matched_bids[t] - \
-                   dict_power_load_base[t] + model.deviation_grid_pos[t] - model.deviation_grid_neg[t]
+                   dict_power_load[t] + model.deviation_grid_pos[t] - model.deviation_grid_neg[t]
 
         model.energy_deviation_constraint = pyo.Constraint(model.t, rule=energy_deviation_constraint)
 
         # energy balancing from matched bids constraint
         def energy_balancing_bids_constraint(model, t):
-            return dict_matched_bids[t] + dict_power_load_base[t] + model.balancing_grid_pos[t] - \
+            return dict_matched_bids[t] + dict_power_load[t] + model.balancing_grid_pos[t] - \
                    model.balancing_grid_neg[t] == model.power_grid_out[t]
 
         model.energy_balancing_bids_constraint = pyo.Constraint(model.t, rule=energy_balancing_bids_constraint)
@@ -1114,7 +1120,9 @@ class Prosumer:
         timesteps = range(int(self.ts_delivery_current),
                           int(self.ts_delivery_current + 900 * self.config_dict["mpc_horizon"]), 900)
 
-        df_potential_bids = pd.DataFrame(self.mpc_table[self.mpc_table.index.isin(timesteps)])
+        df_potential_bids = ft.read_dataframe(f"{self.path}/controller_mpc.ft")
+        df_potential_bids = df_potential_bids[df_potential_bids.index.isin(timesteps)]
+        # df_potential_bids = pd.DataFrame(self.mpc_table[self.mpc_table.index.isin(timesteps)])
         # ft.write_dataframe(df_potential_bids.reset_index(),
         #                    os.path.join(self.path_out, f'controller_mpc_{self.count}.ft'))
         global list_soc
@@ -1505,6 +1513,304 @@ class Prosumer:
         list_soc = np.where(list_soc > 0, list_soc, 0)
         return [list_soc.tolist(), array_bat.tolist(), array_hh_base.tolist(), array_grid_meter.tolist(),
                 array_pv_out.tolist(), np.array(array_bat_sub).round(2).tolist()]
+
+    def mpc_qtl(self, controller=None):
+        """Execute the model predictive controller_real_time for the market participant given the predicted
+        generation, consumption, and market prices for a configurable time horizon.
+
+        The controller_real_time will always attempt to maximize its earnings. If no market price optimization is
+        desired, a flat market price utilities should be input.
+
+        :return: None
+        """
+
+        timesteps = range(int(self.ts_delivery_current),
+                          int(self.ts_delivery_current + 900 * self.config_dict["mpc_horizon"]), 900)
+        user_risk_qtl_num = 1
+        self.base_quantiles = np.zeros(9)
+        self.base_quantiles_first = np.zeros(len(self.base_quantiles))
+        self.base_quantiles_first[0] = 1
+        self.base_quantiles[:user_risk_qtl_num] = 1
+
+        # forecast table section
+        self.fcast_table = ft.read_dataframe(f"{self.path}/fcasts_current.ft").set_index("timestamp")
+
+        self.fcast_table = self.fcast_table[self.fcast_table.index.isin(timesteps)]
+        self.fcast_table[f'power_{self._get_list_plants(plant_type="hh")[0]}'] *= -1
+
+        probability = np.array([0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1])
+        self.fcast_table['probability'] = np.tile(probability, (len(self.fcast_table), 1)).tolist()
+        multiplier = np.array([0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1, 1.05, 1.1])
+        self.fcast_table[f'power_{self._get_list_plants(plant_type=["pv"])[0]}_quantiles'] =\
+            self.fcast_table[f'power_{self._get_list_plants(plant_type=["pv"])[0]}'].apply(
+                lambda x: list(np.diff(np.array(x*multiplier).astype(int), prepend=0)))
+
+        self.fcast_table[f"power_{self.config_dict['id_meter_grid']}"] = 0
+        self.fcast_table[f"power_in_{self.config_dict['id_meter_grid']}"] = 0
+        self.fcast_table[f"power_out_{self.config_dict['id_meter_grid']}"] = 0
+
+        array_price_quantiles = (1-probability)*(1-self.base_quantiles)
+        self.fcast_table['price_quantiles'] = np.tile(np.round(array_price_quantiles, 3),
+                                                      (len(self.fcast_table), 1)).tolist()
+        self.fcast_table['balancing_price'] = float(0.10)
+        self.fcast_table['matched_bid_pos'] = 0
+        self.fcast_table.index = self.fcast_table.index.astype(dtype='int64')
+        position_number = np.array([0, 1, 2, 3, 4, 5, 6, 7, 8])
+        self.fcast_table['position_number'] = np.tile(position_number, (len(self.fcast_table), 1)).tolist()
+
+        self.mpc_table = self.fcast_table.fillna(0)
+        self.mpc_table.index = self.mpc_table.index.astype(dtype='int64')
+        self.mpc_table = self.mpc_table[self.mpc_table.index.isin(timesteps)]
+        self.mpc_table['price_quantiles'] = self.mpc_table.apply(lambda x: list(np.round(np.array(
+            x['price_quantiles']) * x['balancing_price'], 3)), axis=1)
+
+        # model declaration
+        model = pyo.AbstractModel()
+        model.t = pyo.Set(initialize=timesteps)
+        model.t_restricted = pyo.Set(initialize=range(
+            int(self.ts_delivery_current + 900), int(self.ts_delivery_current + 900 * self.config_dict["mpc_horizon"]),
+            900), within=model.t)
+
+        # variable definition
+        model.power_pv = pyo.Var(model.t, within=pyo.NonNegativeReals)
+        bat_power = self.plant_dict[self._get_list_plants(plant_type="bat")[0]]["power"]
+        bat_capacity = self.plant_dict[self._get_list_plants(plant_type="bat")[0]]["capacity"]
+        eta_bat = self.plant_dict[self._get_list_plants(plant_type="bat")[0]]["efficiency"]
+
+        model.power_bat_in = pyo.Var(model.t, within=pyo.NonNegativeReals, bounds=(0, bat_power))
+        model.power_bat_out = pyo.Var(model.t, within=pyo.NonNegativeReals, bounds=(0, bat_power))
+        model.soc_bat = pyo.Var(model.t, within=pyo.NonNegativeReals, bounds=(0, bat_capacity))
+        model.power_bat_milp = pyo.Var(model.t, within=pyo.Boolean)
+        model.power_grid_out = pyo.Var(model.t, within=pyo.NonNegativeReals)
+        model.power_grid_in = pyo.Var(model.t, within=pyo.NonNegativeReals)
+
+        # parameters
+        dict_power_load = dict(self.mpc_table[f'power_{self._get_list_plants(plant_type="hh")[0]}'])
+        dict_power_pv = dict(self.mpc_table[f'power_{self._get_list_plants(plant_type=["pv"])[0]}_quantiles'].apply(
+            lambda x: np.sum(np.array(x) * self.base_quantiles)))
+        dict_price = dict(self.mpc_table[f'price'])
+        dict_levi_pos = dict(self.mpc_table[f'price_energy_levies_positive'])
+        dict_levi_neg = dict(self.mpc_table[f'price_energy_levies_negative'])
+        with open(f'{self.path}/soc_{self._get_list_plants(plant_type="bat")[0]}.json', "r") as read_file:
+            soc_bat_init = json.load(read_file)
+
+        # constraints
+        # battery either charge or discharge constraint
+        def battery_charge_constraint(model, t):
+            return model.power_bat_in[t] <= model.power_bat_milp[t] * 1000000
+
+        model.battery_charge_constraint = pyo.Constraint(model.t, rule=battery_charge_constraint)
+
+        def battery_discharge_constraint(model, t):
+            return model.power_bat_out[t] <= (1 - model.power_bat_milp[t]) * 1000000
+
+        model.battery_discharge_constraint = pyo.Constraint(model.t, rule=battery_discharge_constraint)
+
+        # max pv power constraint
+        def pv_max_power_constraint(model, t):
+            return model.power_pv[t] == dict_power_pv[t]
+
+        model.pv_max_power_constraint = pyo.Constraint(model.t, rule=pv_max_power_constraint)
+
+        # battery charge only from pv constraint
+        def battery_charging_pv_only_constraint(model, t):
+            return model.power_bat_in[t] <= dict_power_pv[t]
+
+        model.battery_charging_pv_only_constraint = pyo.Constraint(model.t, rule=battery_charging_pv_only_constraint)
+
+        # initial battery soc constraint
+        def init_soc_battery_constraint(model):
+            return soc_bat_init - (0.25 * model.power_bat_out[self.ts_delivery_current] / eta_bat) + \
+                   (0.25 * model.power_bat_in[self.ts_delivery_current] * eta_bat) == model.soc_bat[self.ts_delivery_current]
+
+        model.init_soc_battery_constraint = pyo.Constraint(rule=init_soc_battery_constraint)
+
+        # soc balance constraint
+        def soc_battery_constraint(model, t):
+            return model.soc_bat[t - int(900)] - (0.25 * model.power_bat_out[t] / eta_bat) + \
+                   (0.25 * model.power_bat_in[t] * eta_bat) == model.soc_bat[t]
+
+        model.soc_battery_constraint = pyo.Constraint(model.t_restricted, rule=soc_battery_constraint)
+
+        # battery ramping constraint
+        def battery_ramping_lower_constraint(model, t):
+            return -0.1 * bat_power <= ((model.power_bat_out[t] - model.power_bat_in[t])
+                                                           - (model.power_bat_out[t - int(900)] -
+                                                              model.power_bat_in[t - int(900)]))
+
+        model.battery_ramping_lower_constraint = pyo.Constraint(model.t_restricted,
+                                                                rule=battery_ramping_lower_constraint)
+
+        def battery_ramping_upper_constraint(model, t):
+            return ((model.power_bat_out[t] - model.power_bat_in[t]) -
+                    (model.power_bat_out[t - int(900)] - model.power_bat_in[t - int(900)])) <= 0.1 * bat_power
+        model.battery_ramping_upper_constraint = pyo.Constraint(model.t_restricted,
+                                                                rule=battery_ramping_upper_constraint)
+
+        # ******************************
+        # energy balance pos constraint
+        def energy_balance_constraint(model, t):
+            return model.power_pv[t] + model.power_bat_out[t] - model.power_bat_in[t] - dict_power_load[t] ==\
+                   model.power_grid_out[t] - model.power_grid_in[t]
+
+        model.energy_balance_constraint = pyo.Constraint(model.t, rule=energy_balance_constraint)
+
+        # Define objective function
+        def objective_function(model):
+            cost = sum(model.power_grid_out[t] * (dict_price[t] + dict_levi_pos[t])
+                       - model.power_grid_in[t] * (dict_price[t] + dict_levi_neg[t]) for t in model.t)
+            objective_expression = cost
+            return objective_expression
+
+        # Solve model
+        model.objective = pyo.Objective(rule=objective_function, sense=pyo.maximize)  # minimize cost
+
+        instance = model.create_instance()
+        opt = pyo.SolverFactory(self.config_dict["solver"])
+        opt.solve(instance, tee=False)
+
+        for t in timesteps:
+            self.mpc_table.loc[t, f'power_{self._get_list_plants(plant_type="bat")[0]}'] =\
+                instance.power_bat_out[t].value - instance.power_bat_in[t].value
+            self.mpc_table.loc[t, f'soc_{self._get_list_plants(plant_type="bat")[0]}'] = instance.soc_bat[t].value
+            self.mpc_table.loc[t, f"power_out_{self.config_dict['id_meter_grid']}"] = instance.power_grid_out[t].value
+            self.mpc_table.loc[t, f"power_in_{self.config_dict['id_meter_grid']}"] = instance.power_grid_in[t].value
+            self.mpc_table.loc[t, f"power_{self.config_dict['id_meter_grid']}"] = instance.power_grid_out[t].value -\
+                                                                                  instance.power_grid_in[t].value
+
+        self.mpc_table[f'power_{self._get_list_plants(plant_type=["pv"])[0]}'] = np.array(dict_power_pv.values())
+
+        self.mpc_table = self.mpc_table[self.mpc_table.index.isin(timesteps)]
+        if self.save_output_result:
+            self.mpc_table.to_csv(os.path.join(self.path_out, f'mpc_qtl_{self.count}.csv'))
+        ft.write_dataframe(self.mpc_table, f"{self.path}/controller_mpc.ft")
+
+    def market_agent_qtl(self, db_obj, clear_positions=False):
+
+        timesteps = range(int(self.ts_delivery_current),
+                          int(self.ts_delivery_current + 900 * self.config_dict["mpc_horizon"]), 900)
+
+        df_potential_bids = ft.read_dataframe(f"{self.path}/controller_mpc.ft")
+        df_potential_bids = df_potential_bids[df_potential_bids.index.isin(timesteps)]
+
+        df_potential_bids['price_linear_desc'] = np.linspace(start=0.1, stop=0.01, num=len(df_potential_bids))
+
+        df_potential_bids[f"power_{self.config_dict['id_meter_grid']}_quantiles"] = df_potential_bids.apply(
+            lambda x: list(np.round(np.array(x[f"power_{self.config_dict['id_meter_grid']}"])
+                                    * self.base_quantiles +
+                                    np.array(x[f'power_{self._get_list_plants(plant_type=["pv"])[0]}_quantiles'])
+                                    * (1 - self.base_quantiles), 0)), axis=1)
+
+        if self.save_output_result:
+            df_potential_bids.to_csv(os.path.join(self.path_out, f'mpc_after_qtl_{self.count}.csv'))
+        ft.write_dataframe(df_potential_bids.reset_index(), f"{self.path}/controller_mpc.ft")
+
+        df_potential_bids = df_potential_bids.explode([f"power_{self.config_dict['id_meter_grid']}_quantiles",
+                                                       'price_quantiles', 'position_number'])
+        df_potential_bids = pd.DataFrame(
+            df_potential_bids[[f"power_{self.config_dict['id_meter_grid']}_quantiles",
+                               'price_quantiles', 'position_number', 'price_linear_desc']])
+        df_potential_bids.rename(columns={f"power_{self.config_dict['id_meter_grid']}_quantiles": "net_bids",
+                                          "price_quantiles": "price"}, inplace=True)
+
+        df_potential_bids['net_bids'] = df_potential_bids['net_bids'].fillna(0)
+        df_potential_bids['net_bids'] /= 4
+        df_potential_bids = df_potential_bids.astype({'price': 'float', 'net_bids': 'int', 'position_number': 'int',
+                                                      'price_linear_desc': 'float'})
+        df_potential_bids = df_potential_bids.set_index(['position_number'], append=True)
+
+        ts = np.unique(np.array(df_potential_bids.index.get_level_values(level='timestamp')))
+        price = np.linspace(start=0.01, stop=0.1, num=len(ts))
+        df_potential_bids_temp = pd.DataFrame({'price': price, 'timestamp': ts}).set_index('timestamp')
+
+        position_number = np.array([0, 1, 2, 3, 4, 5, 6, 7, 8])
+        df_potential_bids_temp['position_number'] = np.tile(position_number[:int(self.base_quantiles.sum())],
+                                             (len(df_potential_bids_temp), 1)).tolist()
+        df_potential_bids_temp = df_potential_bids_temp.explode(['position_number']).set_index('position_number',
+                                                                                               append=True)
+        df_potential_bids['price_linear'] = df_potential_bids.index.map(df_potential_bids_temp['price'])
+        df_potential_bids['price'] = df_potential_bids['price_linear'].fillna(df_potential_bids['price'])
+
+        df_potential_bids_temp = pd.DataFrame(df_potential_bids['net_bids'], columns=['net_bids'])
+        df_potential_bids_temp['net_bids_res'] = df_potential_bids_temp['net_bids']
+
+        # matched bids
+        if not self.matched_bids.empty:
+            df_matched_bids = self.matched_bids
+            df_matched_bids['position_number'] = np.where(df_matched_bids['id_user_bid'] == self.config_dict["id_user"],
+                                                          df_matched_bids['number_position_bid'],
+                                                          df_matched_bids['number_position_offer'])
+            df_matched_bids = df_matched_bids.groupby(by=['ts_delivery',
+                                                          'position_number']).agg({'net_bids': 'sum'}).reset_index()
+            df_matched_bids.rename(columns={'ts_delivery': 'timestamp'}, inplace=True)
+            df_matched_bids = df_matched_bids.sort_values(by=['timestamp', 'position_number'],
+                                                          ascending=[True, True]).set_index('timestamp')
+            df_matched_bids = df_matched_bids[df_matched_bids.index.isin(timesteps)]
+            df_matched_bids = df_matched_bids.astype({'position_number': 'int', 'net_bids': 'int'})
+            df_matched_bids = df_matched_bids.set_index('position_number', append=True)
+            df_matched_bids = df_matched_bids[df_matched_bids.index.isin(df_potential_bids_temp.index)]
+
+            df_potential_bids_temp['net_bids_res'] = df_potential_bids_temp['net_bids'] - df_matched_bids['net_bids']
+            df_potential_bids_temp['net_bids_res'] = df_potential_bids_temp['net_bids_res'].fillna(
+                df_potential_bids_temp['net_bids'])
+
+        df_potential_bids_temp = df_potential_bids_temp.fillna(0).round(0).astype({'net_bids_res': 'int'})
+        df_potential_bids_temp = df_potential_bids_temp[df_potential_bids_temp['net_bids_res'] != 0]
+
+        df_positions = pd.DataFrame(columns=[db_obj.db_param.ID_USER, db_obj.db_param.QTY_ENERGY,
+                                             db_obj.db_param.PRICE_ENERGY, db_obj.db_param.QUALITY_ENERGY,
+                                             db_obj.db_param.PREMIUM_PREFERENCE_QUALITY, db_obj.db_param.TYPE_POSITION,
+                                             db_obj.db_param.NUMBER_POSITION, db_obj.db_param.STATUS_POSITION,
+                                             db_obj.db_param.T_SUBMISSION, db_obj.db_param.TS_DELIVERY,
+                                             'price_linear_desc'],
+                                    index=df_potential_bids_temp.index)
+        euro_kwh_to_sigma_wh = db_obj.db_param.EURO_TO_SIGMA / 1000
+
+        has_renewable = np.zeros(len(df_positions), dtype=bool)
+        has_non_ren = np.zeros(len(df_positions), dtype=bool)
+        for plant in self._get_list_plants("pv") + self._get_list_plants("fixedgen"):
+            if self.plant_dict[plant]["quality"] in ["green_local"]:
+                has_renewable = np.ones(len(df_positions), dtype=bool)
+            if self.plant_dict[plant]["quality"] in ["local"]:
+                has_non_ren = np.ones(len(df_positions), dtype=bool)
+
+        df_positions[db_obj.db_param.ID_USER] = self.config_dict['id_market_agent']
+
+        df_positions[db_obj.db_param.NUMBER_POSITION] = df_positions.index.get_level_values(level='position_number')
+
+        df_positions[db_obj.db_param.QTY_ENERGY] = df_potential_bids_temp['net_bids_res']
+
+        df_positions[db_obj.db_param.QTY_ENERGY] = np.where((~df_positions[db_obj.db_param.NUMBER_POSITION].isin([0]))
+                                                            & (df_positions[db_obj.db_param.QTY_ENERGY] < 0),
+                                                            0, df_positions[db_obj.db_param.QTY_ENERGY].abs())
+
+        df_positions[db_obj.db_param.TYPE_POSITION] = np.where(df_potential_bids_temp['net_bids_res'] > 0, "offer", "bid")
+        df_positions[db_obj.db_param.STATUS_POSITION] = 0
+        df_positions[db_obj.db_param.QUALITY_ENERGY] = np.where(
+            df_potential_bids_temp['net_bids_res'] < 0, self.config_dict["ma_preference_quality"],
+            np.where(df_potential_bids_temp['net_bids_res'] > 0 & has_non_ren, "local",
+                     np.where(df_potential_bids_temp['net_bids_res'] > 0 & has_renewable, 'green_local', "na")))
+        df_positions[db_obj.db_param.PREMIUM_PREFERENCE_QUALITY] = np.where(
+            df_potential_bids_temp['net_bids_res'] < 0, self.config_dict["ma_premium_preference_quality"], 0)
+        df_positions[db_obj.db_param.T_SUBMISSION] = self.t_now
+        df_positions[db_obj.db_param.TS_DELIVERY] = df_positions.index.get_level_values(level='timestamp')
+
+        df_positions[db_obj.db_param.PRICE_ENERGY].fillna(df_potential_bids['price'], inplace=True)
+        df_positions['price_linear_desc'].fillna(df_potential_bids['price_linear_desc'], inplace=True)
+        df_positions[[db_obj.db_param.PRICE_ENERGY, 'price_linear_desc']] = df_positions[[db_obj.db_param.PRICE_ENERGY,
+                                                                                          'price_linear_desc']].round(2)
+        df_positions[db_obj.db_param.PRICE_ENERGY] = np.where(
+            df_potential_bids_temp['net_bids_res'] < 0, df_positions['price_linear_desc'] * euro_kwh_to_sigma_wh,
+            df_positions[db_obj.db_param.PRICE_ENERGY] * euro_kwh_to_sigma_wh)
+        df_positions = df_positions.drop('price_linear_desc', axis=1)
+        df_positions = df_positions[df_positions[db_obj.db_param.QTY_ENERGY] != 0]
+
+        if clear_positions:
+            db_obj.clear_positions(id_user=self.config_dict['id_market_agent'])
+        if not df_positions.empty:
+            if self.save_output_result:
+                df_positions.to_csv(os.path.join(self.path_out, f'positions_qtl_{self.count}.csv'))
+            db_obj.post_positions(df_positions, t_override=self.t_now)
 
     def plot_graph_before(self):
 

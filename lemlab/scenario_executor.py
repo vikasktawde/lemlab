@@ -593,7 +593,7 @@ class ScenarioExecutor:
 
             # number of parallel processes should not exceed the number of prosumers being simulated
             # initializing processes is expensive
-            num_par_processes = min(len(self.__get_active_prosumers()), mp.cpu_count())
+            num_par_processes = min(len(self.__get_active_prosumers()), mp.cpu_count()-2)
             # num_par_processes = 32
 
             with mp.Pool(initializer=_par_step_prosumers_init,

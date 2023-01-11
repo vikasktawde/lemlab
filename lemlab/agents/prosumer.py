@@ -93,7 +93,7 @@ class Prosumer:
         self.matched_bids_by_timestep = None
         self.count = count
         self.base_quantiles = None
-        self.save_output_result = True
+        self.save_output_result = False
 
     def pre_clearing_activity(self, db_obj, clear_positions=False):
         self.update_user_preferences(db_obj)
@@ -111,26 +111,28 @@ class Prosumer:
             # update forecasts for all plants, retrain if necessary
             self.fcast_manager.update_forecasts()
 
-            if self.config_dict["id_user"] == "0000000001":
-                self.controller_model_predictive_test()
-                # self.mpc_qtl()
-            else:
-                # execute model predictive control
-                self.controller_model_predictive()
+            # if self.config_dict["id_user"] == "0000000001":
+            #     self.controller_model_predictive_test()
+            #     # self.mpc_qtl()
+            # else:
+            #     # execute model predictive control
+            #     self.controller_model_predictive()
 
-            # # execute model predictive control
-            # self.controller_model_predictive()
+            # execute model predictive control
+            self.controller_model_predictive()
 
             # # finally then, execute market agent if ex-ante market
             # self.market_agent(db_obj=db_obj, clear_positions=clear_positions)
 
             if db_obj.lem_config["types_clearing_ex_ante"]:
-                if self.config_dict["id_user"] == "0000000001":
-                    self.market_agent_test(db_obj=db_obj, clear_positions=clear_positions)
-                    self.plot_graph_before()
-                    # self.market_agent_qtl(db_obj=db_obj, clear_positions=clear_positions)
-                else:
-                    self.market_agent(db_obj=db_obj, clear_positions=clear_positions)
+                self.market_agent(db_obj=db_obj, clear_positions=clear_positions)
+
+                # if self.config_dict["id_user"] == "0000000001":
+                #     self.market_agent_test(db_obj=db_obj, clear_positions=clear_positions)
+                #     # self.plot_graph_before()
+                #     # self.market_agent_qtl(db_obj=db_obj, clear_positions=clear_positions)
+                # else:
+                #     self.market_agent(db_obj=db_obj, clear_positions=clear_positions)
 
     def post_clearing_activity(self, db_obj):
         market_type = "ex_ante" if db_obj.lem_config["types_clearing_ex_ante"] else "ex_post"
@@ -142,8 +144,8 @@ class Prosumer:
         if "mpc" in self.config_dict["controller_strategy"]:
             self.set_target_grid_power(market_type)
 
-        if self.config_dict["id_user"] == "0000000001":
-            self.plot_graph_after()
+        # if self.config_dict["id_user"] == "0000000001":
+        #     self.plot_graph_after()
 
     # internal functions
 
@@ -812,21 +814,28 @@ class Prosumer:
 
         self.fcast_table = self.fcast_table[self.fcast_table.index.isin(timesteps)]
         self.fcast_table[f'power_{self._get_list_plants(plant_type="hh")[0]}'] *= -1
+
         probability = np.array([0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1])
         self.fcast_table['probability'] = np.tile(probability, (len(self.fcast_table), 1)).tolist()
-        multiplier = np.array([0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1, 1.05, 1.1])
+        # multiplier = np.array([0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1, 1.05, 1.1])
+        multiplier = np.array([0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.4])
         self.fcast_table[f'power_{self._get_list_plants(plant_type=["pv"])[0]}_quantiles'] =\
             self.fcast_table[f'power_{self._get_list_plants(plant_type=["pv"])[0]}'].apply(
-                lambda x: list(np.diff(np.array(x*multiplier).astype(int), prepend=0)))
+                lambda x: list(np.diff(np.array(x*multiplier).clip(max=self.plant_dict[
+                    self._get_list_plants(plant_type="pv")[0]]["power"]).astype(int), prepend=0)))
+
         self.fcast_table[f"power_{self.config_dict['id_meter_grid']}"] = 0
         self.fcast_table[f"power_in_{self.config_dict['id_meter_grid']}"] = 0
         self.fcast_table[f"power_out_{self.config_dict['id_meter_grid']}"] = 0
         self.fcast_table['quantile_number'] = int(self.base_quantiles.sum())
+        # self.fcast_table['quantile_number'] = 9
         self.fcast_table[f'base_power_{self._get_list_plants(plant_type=["pv"])[0]}'] = \
             self.fcast_table.apply(lambda x: list(np.array(self.pv_gen(x=x))), axis=1)
-        array_price_quantiles = (1-probability)*(1-self.base_quantiles)
-        self.fcast_table['price_quantiles'] = np.tile(np.round(array_price_quantiles, 3),
-                                                      (len(self.fcast_table), 1)).tolist()
+        # array_price_quantiles = (1-probability)*(1-self.base_quantiles)
+        # self.fcast_table['price_quantiles'] = np.tile(np.round(array_price_quantiles, 3),
+        #                                               (len(self.fcast_table), 1)).tolist()
+        self.fcast_table['price_quantiles'] = self.fcast_table['probability'].apply(
+            lambda x: list(np.round((1-np.array(x))*(1-self.base_quantiles), 3)))
         self.fcast_table['balancing_price'] = float(0.10)
         self.fcast_table[f'power_{self._get_list_plants(plant_type="hh")[0]}_quantiles'] =\
             np.tile(np.zeros(9).astype(int), (len(self.fcast_table), 1)).tolist()
@@ -836,6 +845,7 @@ class Prosumer:
         self.fcast_table[f"power_{self.config_dict['id_meter_grid']}_quantiles"] =\
             np.tile(np.zeros(9).astype(int), (len(self.fcast_table), 1)).tolist()
         self.fcast_table.index = self.fcast_table.index.astype(dtype='int64')
+        # self.fcast_table.to_csv(os.path.join(self.path_out, f'fcast_table_{self.count}.csv'))
 
         list_col = [f"power_{self.config_dict['id_meter_grid']}_quantiles",
                     f"power_{self.config_dict['id_meter_grid']}", 'price', 'quantile_number', 'matched_bid_pos',
@@ -896,15 +906,17 @@ class Prosumer:
 
         self.mpc_table["matched_bid_pos"] = self.mpc_table['matched_bid_pos_quantile'].apply(
             lambda x: np.sum(x))
-        # self.mpc_table.to_csv(os.path.join(self.path_out, f'mpc_{self.count}.csv'))
+
         # grid meter
         self.mpc_table[f"power_{self.config_dict['id_meter_grid']}_pos_quantiles"] = self.mpc_table[
             f"power_{self.config_dict['id_meter_grid']}_quantiles"].apply(
             lambda x: list(np.array(x).clip(min=0)))
         self.mpc_table[f"power_{self.config_dict['id_meter_grid']}_pos"] = self.mpc_table[
             f"power_{self.config_dict['id_meter_grid']}_pos_quantiles"].apply(lambda x: np.sum(x))
+
         self.mpc_table["state_grid"] = self.mpc_table[f"power_{self.config_dict['id_meter_grid']}_pos"] - \
                                        self.mpc_table["matched_bid_pos"]
+
         self.mpc_table = self.mpc_table[self.mpc_table.index.isin(timesteps)]
         self.mpc_table = self.mpc_table.fillna(0)
         self.mpc_table['price_quantiles'] = self.mpc_table.apply(lambda x: list(np.round(np.array(
@@ -913,36 +925,27 @@ class Prosumer:
         self.mpc_table[f'power_{self._get_list_plants(plant_type=["pv"])[0]}'] = self.mpc_table.apply(
             lambda x: list(np.array(self.pv_gen(x=x))), axis=1)
 
-        # ft.write_dataframe(self.mpc_table.reset_index(),
-        #                    os.path.join(self.path_out, f'mpc_{self.count}.ft'))
-
-        # quantile shifting algorithm
         if int(ts_delivery_start + 900) < self.ts_delivery_current:
 
             # price adaptation
-            temp_array = (self.mpc_table["matched_bid_pos_update"] /
-                          self.mpc_table["matched_bid_pos_update"].sum()).to_numpy()
-            # self.mpc_table["state_grid_pos"] = np.where(self.mpc_table["state_grid"] > 0, self.mpc_table["state_grid"],
-            #                                              0)
-            # self.mpc_table["price"] = np.where(temp_array > 0, self.mpc_table["price"] + (
-            #         float(0.00001) * self.mpc_table["matched_bid_pos_update"]), self.mpc_table["price"] - float(
-            #     0.000001) * self.mpc_table["state_grid_pos"])
+            self.mpc_table["state_grid_pos"] = self.mpc_table.apply(lambda x:
+            np.array(x[f"power_{self.config_dict['id_meter_grid']}_pos_quantiles"] -
+            np.array(x['matched_bid_pos_quantile'], dtype=float), dtype=float).clip(min=0).sum(), axis=1)
 
-            self.mpc_table["state_grid_pos"] = self.mpc_table.apply(lambda x: np.array(
-                np.array(x['matched_bid_pos_quantile'], dtype=float) - np.array(
-                    x[f"power_{self.config_dict['id_meter_grid']}_pos_quantiles"],
-                    dtype=float)).clip(min=0).sum(), axis=1)
-
+            # self.mpc_table["price"] = np.where(
+            #     self.mpc_table["state_grid_pos"] > 0,
+            #     self.mpc_table["price"] - float(0.0000001) * self.mpc_table["state_grid_pos"],
+            #     self.mpc_table["price"] + (float(0.000001) * self.mpc_table["matched_bid_pos_update"]))
             self.mpc_table["price"] = np.where(
-                self.mpc_table["state_grid_pos"] > 0,
-                self.mpc_table["price"] - float(0.0000001) * self.mpc_table["state_grid_pos"],
-                self.mpc_table["price"] + (float(0.000001) * self.mpc_table["matched_bid_pos_update"]))
-
+                self.mpc_table["matched_bid_pos_update"] > 0,
+                self.mpc_table["price"] + float(0.0001) * self.mpc_table["matched_bid_pos_update"],
+                self.mpc_table["price"] - float(0.00001) * self.mpc_table["state_grid_pos"])
 
             # quantile shift
             df_mpc = self.mpc_table[self.mpc_table.index.isin(timesteps)]
             base_pv = np.sum(pd.DataFrame(
                 df_mpc[f'base_power_{self._get_list_plants(plant_type=["pv"])[0]}'].to_list()).sum(axis=0).to_numpy())
+
             array_diff = pd.DataFrame(df_mpc[f'power_{self._get_list_plants(plant_type=["pv"])[0]}_quantiles'
                                       ].to_list()).sum(axis=0).to_numpy() - pd.DataFrame(
                 df_mpc[f'power_{self._get_list_plants(plant_type=["pv"])[0]}'].to_list()).sum(axis=0).to_numpy()
@@ -991,6 +994,8 @@ class Prosumer:
         # parameters
         dict_power_load = dict(self.mpc_table[f'power_{self._get_list_plants(plant_type="hh")[0]}'])
         dict_power_pv = dict(self.mpc_table[f'power_{self._get_list_plants(plant_type=["pv"])[0]}'].apply(lambda x: np.sum(x)))
+        if self.ts_delivery_current % 3600 == 0:
+            self.mpc_table["price"] = 0.055
         self.mpc_table['price_norm'] = np.interp(self.mpc_table["price"], (self.mpc_table["price"].min(),
                                                                            self.mpc_table["price"].max()), (0, 1))
         dict_price_norm = dict(self.mpc_table['price_norm'])
@@ -1678,18 +1683,19 @@ class Prosumer:
 
         probability = np.array([0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1])
         self.fcast_table['probability'] = np.tile(probability, (len(self.fcast_table), 1)).tolist()
-        multiplier = np.array([0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1, 1.05, 1.1])
+        # multiplier = np.array([0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1, 1.05, 1.1])
+        multiplier = np.array([0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.4])
         self.fcast_table[f'power_{self._get_list_plants(plant_type=["pv"])[0]}_quantiles'] =\
             self.fcast_table[f'power_{self._get_list_plants(plant_type=["pv"])[0]}'].apply(
-                lambda x: list(np.diff(np.array(x*multiplier).astype(int), prepend=0)))
+                lambda x: list(np.diff(np.array(x*multiplier).clip(max=self.plant_dict[
+                    self._get_list_plants(plant_type="pv")[0]]["power"]).astype(int), prepend=0)))
 
         self.fcast_table[f"power_{self.config_dict['id_meter_grid']}"] = 0
         self.fcast_table[f"power_in_{self.config_dict['id_meter_grid']}"] = 0
         self.fcast_table[f"power_out_{self.config_dict['id_meter_grid']}"] = 0
 
-        array_price_quantiles = (1-probability)*(1-self.base_quantiles)
-        self.fcast_table['price_quantiles'] = np.tile(np.round(array_price_quantiles, 3),
-                                                      (len(self.fcast_table), 1)).tolist()
+        self.fcast_table['price_quantiles'] = self.fcast_table['probability'].apply(
+            lambda x: list(np.round((1-np.array(x))*(1-self.base_quantiles), 3)))
         self.fcast_table['balancing_price'] = float(0.10)
         self.fcast_table['matched_bid_pos'] = 0
         self.fcast_table.index = self.fcast_table.index.astype(dtype='int64')

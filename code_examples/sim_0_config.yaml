@@ -14,7 +14,7 @@ simulation:
   # sim only
   "sim_start": "2021-03-24 00:00"           # simulation start as unix timestamp
   "sim_start_tz": "europe/berlin"           # timezone of simulation
-  "sim_length": 3                           # length of the simulation in days
+  "sim_length": 7                           # length of the simulation in days
 
   "path_input_data": "../input_data"        # path relative to the lemlab repository
   "path_scenarios": "../scenarios"          # path relative to the lemlab repository
@@ -174,7 +174,7 @@ prosumer:
                                             # Note: any prosumer without any controllable plants will default to a
                                             #       rule-based controller
 
-  "mpc_horizon": 180                        # mpc horizon : 1 - ~180 -> how many delivery period into the future are to be considered
+  "mpc_horizon": 144                        # mpc horizon : 1 - ~180 -> how many delivery period into the future are to be considered
 
   "mpc_price_fcast": "flat"                 # forecast model to be used for the lem market price
                                             #     "flat" - no meaningful forecasting, flat price curve
@@ -221,7 +221,7 @@ prosumer:
                                             #         hh_intervals:     [2000, 4000]
                                             #         --> 20% <=2000, 2000< 60% <=4000, 20% >4000
 
-  "hh_fcast": "naive"                       # household load forecasting method
+  "hh_fcast": "smoothed"                    # household load forecasting method
                                             #   "perfect" - perfect knowledge of the future
                                             #   "naive"   - today will be the same as yesterday
                                             #   "naive_average" - today will be the same as
@@ -245,16 +245,16 @@ prosumer:
 
   ################################ small-scale photovoltaic settings ####################################
 
-  "pv_fraction": 0.9                          # fraction of prosumers with pv plants
+  "pv_fraction": 0.75                          # fraction of prosumers with pv plants
 
-  "pv_sizing_power": 3                      # sizing of pv plant
+  "pv_sizing_power": 3                    # sizing of pv plant
                                             # 1 = 1000 wp of pv for every 1000 kwh/a of household consumption
 
   "pv_sizing_power_deviation": 0            # random positive/negative deviation from pv_sizing_power
 
   "pv_controllable": true                   # can the pv inverter be controlled? true or false
 
-  "pv_fcast": "perfect"                     # pv production forecasting method
+  "pv_fcast": "perfect"                          # pv production forecasting method
                                             #   "perfect" - perfect knowledge of the future
                                             #   "smoothed" - prediction value is a moving mean of the future values.
                                             #                window width of 9 time steps
@@ -308,7 +308,7 @@ prosumer:
                                             #   else:
                                             #       battery power = bat_sizing_power * hh consumption p.a. / 1000
 
-  "bat_sizing_capacity": 1                  # battery capacity sizing
+  "bat_sizing_capacity": 0.667              # battery capacity sizing
                                             #   battery capacity = battery power * bat_sizing_capacity
 
   "bat_efficiency": 0.95                    # one way charging efficiency of the battery

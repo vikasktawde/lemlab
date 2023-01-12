@@ -111,9 +111,9 @@ class Prosumer:
             # update forecasts for all plants, retrain if necessary
             self.fcast_manager.update_forecasts()
 
-            # if self.config_dict["id_user"] == "0000000001":
-            #     self.controller_model_predictive_test()
-            #     # self.mpc_qtl()
+            # if self.config_dict["id_user"] == "0000000021":
+            #     # self.controller_model_predictive_test()
+            #     self.mpc_qtl()
             # else:
             #     # execute model predictive control
             #     self.controller_model_predictive()
@@ -127,10 +127,10 @@ class Prosumer:
             if db_obj.lem_config["types_clearing_ex_ante"]:
                 self.market_agent(db_obj=db_obj, clear_positions=clear_positions)
 
-                # if self.config_dict["id_user"] == "0000000001":
-                #     self.market_agent_test(db_obj=db_obj, clear_positions=clear_positions)
+                # if self.config_dict["id_user"] == "0000000021":
+                #     # self.market_agent_test(db_obj=db_obj, clear_positions=clear_positions)
                 #     # self.plot_graph_before()
-                #     # self.market_agent_qtl(db_obj=db_obj, clear_positions=clear_positions)
+                #     self.market_agent_qtl(db_obj=db_obj, clear_positions=clear_positions)
                 # else:
                 #     self.market_agent(db_obj=db_obj, clear_positions=clear_positions)
 

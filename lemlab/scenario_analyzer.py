@@ -318,7 +318,7 @@ class ScenarioAnalyzer:
 
         # Plots
         # Check number of necessary plots
-        max_par = 20                                                # maximum number of participants in one plot
+        max_par = 21                                                # maximum number of participants in one plot
         num_plots = int(np.ceil((len(df_results) - 1) / max_par))   # for every max_par participants a separate plot
         for x in range(num_plots):
             # Bar plot
